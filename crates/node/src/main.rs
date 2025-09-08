@@ -56,15 +56,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             .publish(topic.clone(), message.as_bytes())
                         {
                             println!("Publish error: {:?}", e);
-                        } else {
-                            println!("Publish done");
                         }
                     }
                 }
             },
             Some(log) = stream.next() => {
                 let command_sender_clone = command_sender.clone();
-                if let Err(e) = handle_blockchain_event(log, user_addr, &provider, &signer, config.contract_address, command_sender_clone).await {
+                if let Err(e) = handle_blockchain_event(log, user_addr, provider.clone(), &signer, config.contract_address, command_sender_clone).await {
                     println!("Error handling blockchain event: {:?}", e);
                 }
             },
