@@ -1,10 +1,21 @@
-use std::{error::Error, time::Duration};
-use alloy::{eips::BlockNumberOrTag, primitives::{Address, U256}, providers::Provider, rpc::types::{Filter, Log}, signers::{local::PrivateKeySigner, Signer}, sol, sol_types::{eip712_domain, SolEvent}};
+use alloy::{
+    eips::BlockNumberOrTag,
+    primitives::{Address, U256},
+    providers::Provider,
+    rpc::types::{Filter, Log},
+    signers::{Signer, local::PrivateKeySigner},
+    sol,
+    sol_types::{SolEvent, eip712_domain},
+};
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::{io::{self, AsyncBufReadExt}, sync::{mpsc, Mutex}, time::sleep};
-use std::io::Write;
-use once_cell::sync::Lazy;
+use std::{error::Error, io::Write, time::Duration};
+use tokio::{
+    io::{self, AsyncBufReadExt},
+    sync::{Mutex, mpsc},
+    time::sleep,
+};
 
 sol!(
     #[sol(rpc)]
@@ -30,7 +41,10 @@ pub enum Command {
 // Use when RPC supports event subscription
 // If not, use setup_ethlistener_polling
 
-// pub async fn setup_ethlistener<T>(provider: T, contract_addr: Address) -> Result<SubscriptionStream<Log>, Box<dyn Error>>
+// pub async fn setup_ethlistener<T>(
+//     provider: T,
+//     contract_addr: Address,
+// ) -> Result<SubscriptionStream<Log>, Box<dyn Error>>
 // where
 //     T: Provider + Send + Sync + 'static,
 // {
@@ -42,7 +56,10 @@ pub enum Command {
 //     Ok(sub.into_stream())
 // }
 
-pub async fn setup_ethlistener_polling<T>(provider: T, contract_addr: Address) -> Result<tokio_stream::wrappers::UnboundedReceiverStream<Log>, Box<dyn Error>>
+pub async fn setup_ethlistener_polling<T>(
+    provider: T,
+    contract_addr: Address,
+) -> Result<tokio_stream::wrappers::UnboundedReceiverStream<Log>, Box<dyn Error>>
 where
     T: Provider + Send + Sync + 'static,
 {
@@ -50,7 +67,8 @@ where
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
     tokio::spawn(async move {
-        let mut last_polled_block: u64 = provider.get_block_number().await.unwrap_or_default().into();
+        let mut last_polled_block: u64 =
+            provider.get_block_number().await.unwrap_or_default().into();
 
         loop {
             sleep(Duration::from_secs(2)).await;
@@ -114,7 +132,10 @@ where
 
         match provider.get_logs(&assigned_filter).await {
             Ok(logs) if !logs.is_empty() => {
-                println!("\nTask {} has already been assigned. Skipping bid.", task_id);
+                println!(
+                    "\nTask {} has already been assigned. Skipping bid.",
+                    task_id
+                );
                 return;
             }
             Err(e) => {
@@ -163,7 +184,10 @@ where
         let bid_amount = match trimmed_input.parse::<U256>() {
             Ok(amount) => {
                 if amount < U256::from(1) || amount > max_payment {
-                    println!("Bid amount must be between 1 and {}. Bid cancelled.", max_payment);
+                    println!(
+                        "Bid amount must be between 1 and {}. Bid cancelled.",
+                        max_payment
+                    );
                     return;
                 }
                 amount
@@ -202,7 +226,10 @@ where
         input.clear();
         if reader.read_line(&mut input).await.is_ok() {
             if input.trim().eq_ignore_ascii_case("y") {
-                if command_sender.send(Command::Publish(msg.to_string())).is_err() {
+                if command_sender
+                    .send(Command::Publish(msg.to_string()))
+                    .is_err()
+                {
                     println!("Error sending publish command to swarm loop.");
                 } else {
                     println!("Bid sent successfully!");
@@ -239,18 +266,41 @@ where
             println!("StakeWithdrawn: user = {:?}, amount = {:?}", user, amount);
         }
         Some(&ZINKNET::TaskCreated::SIGNATURE_HASH) => {
-            let ZINKNET::TaskCreated { taskId, requestor, maxPayment } = log.log_decode()?.inner.data;
-            println!("TaskCreated: taskId = {:?}, requestor = {:?}, maxPayment = {:?}", taskId, requestor, maxPayment);
+            let ZINKNET::TaskCreated {
+                taskId,
+                requestor,
+                maxPayment,
+            } = log.log_decode()?.inner.data;
+            println!(
+                "TaskCreated: taskId = {:?}, requestor = {:?}, maxPayment = {:?}",
+                taskId, requestor, maxPayment
+            );
 
             if requestor != user_addr {
-                handle_task_created(taskId, maxPayment, user_addr, signer, provider, contract_addr, command_sender).await?;
+                handle_task_created(
+                    taskId,
+                    maxPayment,
+                    user_addr,
+                    signer,
+                    provider,
+                    contract_addr,
+                    command_sender,
+                )
+                .await?;
             }
-        },
-        Some(&ZINKNET::ProverAssigned::SIGNATURE_HASH) => {
-            let ZINKNET::ProverAssigned { taskId, prover, finalPayment } = log.log_decode()?.inner.data;
-            println!("ProverAssigned: taskId = {:?}, prover = {:?}, finalPayment = {:?}", taskId, prover, finalPayment);
         }
-        _ => ()
+        Some(&ZINKNET::ProverAssigned::SIGNATURE_HASH) => {
+            let ZINKNET::ProverAssigned {
+                taskId,
+                prover,
+                finalPayment,
+            } = log.log_decode()?.inner.data;
+            println!(
+                "ProverAssigned: taskId = {:?}, prover = {:?}, finalPayment = {:?}",
+                taskId, prover, finalPayment
+            );
+        }
+        _ => (),
     }
     Ok(())
 }

@@ -1,16 +1,15 @@
-use std::error::Error;
-use alloy::providers::ProviderBuilder;
-use alloy::transports::ws::WsConnect;
+use alloy::{providers::ProviderBuilder, transports::ws::WsConnect};
 use clap::Parser;
 use libp2p::futures::StreamExt;
+use std::error::Error;
 use tokio::{select, sync::mpsc};
 
 mod chain;
 mod config;
 mod p2p;
 
-use chain::{handle_blockchain_event, setup_ethlistener_polling, Command};
-use config::{get_signer_from_env, Config};
+use chain::{Command, handle_blockchain_event, setup_ethlistener_polling};
+use config::{Config, get_signer_from_env};
 use p2p::{handle_swarm_event, setup_gossipsub};
 
 #[derive(Parser, Debug)]

@@ -1,5 +1,4 @@
-use alloy::primitives::Address;
-use alloy::signers::local::PrivateKeySigner;
+use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use std::env;
 
 pub struct Config {
