@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8;
 
+import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+
 contract ZinKNetContract {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     uint256 public verificationGas = 0.1 ether;
     uint256 public minStake = 0.1 ether;
 
@@ -20,11 +24,19 @@ contract ZinKNetContract {
     mapping(uint256 => Task) public tasks;
     uint256 private _taskIdCounter;
 
-    mapping(uint256 => address[]) public declarations;
     mapping(address => uint256) public activeTask;
+    mapping(uint256 => EnumerableSet.AddressSet) private _taskDeclarations;
 
     event TaskCreated(uint256 indexed taskId, address indexed requestor, bytes32 indexed taskHash, uint256 reward);
     event WorkDeclared(uint256 indexed taskId, address indexed prover);
+
+    function getDeclarationCount(uint256 taskId) external view returns (uint256) {
+        return _taskDeclarations[taskId].length();
+    }
+
+    function getDeclarations(uint256 taskId) external view returns (address[] memory) {
+        return _taskDeclarations[taskId].values();
+    }
 
     function createTask(bytes32 taskHash, uint256 reward) external payable {
         require(msg.value == reward + verificationGas, "Incorrect ETH sent");
@@ -47,7 +59,7 @@ contract ZinKNetContract {
         require(msg.value == minStake, "Incorrect stake amount");
         require(activeTask[msg.sender] == 0, "Already active in a task");
 
-        declarations[taskId].push(msg.sender);
+        _taskDeclarations[taskId].add(msg.sender);
         activeTask[msg.sender] = taskId;
         emit WorkDeclared(taskId, msg.sender);
     }
@@ -57,14 +69,7 @@ contract ZinKNetContract {
         Task storage task = tasks[taskId];
         require(task.status == TaskStatus.Open, "Task not open");
 
-        address[] storage provers = declarations[taskId];
-        for (uint256 i = 0; i < provers.length; i++) {
-            if (provers[i] == msg.sender) {
-                provers[i] = provers[provers.length - 1];
-                provers.pop();
-                break;
-            }
-        }
+        _taskDeclarations[taskId].remove(msg.sender);
         activeTask[msg.sender] = 0;
         (bool sent, ) = msg.sender.call{value: minStake}("");
         require(sent, "ETH transfer failed");
