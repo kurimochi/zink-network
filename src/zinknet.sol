@@ -17,6 +17,7 @@ contract ZinKNetContract {
         TaskStatus status;
     }
     enum TaskStatus {
+        NotCreated,
         Open,
         Verifying,
         Completed
