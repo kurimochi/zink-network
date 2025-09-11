@@ -30,6 +30,7 @@ contract ZinKNetContract {
 
     event TaskCreated(uint256 indexed taskId, address indexed requestor, bytes32 indexed taskHash, uint256 reward);
     event WorkDeclared(uint256 indexed taskId, address indexed prover);
+    event DeclarationCancelled(uint256 indexed taskId, address indexed prover);
 
     function getDeclarationCount(uint256 taskId) external view returns (uint256) {
         return _taskDeclarations[taskId].length();
@@ -74,5 +75,6 @@ contract ZinKNetContract {
         activeTask[msg.sender] = 0;
         (bool sent, ) = msg.sender.call{value: minStake}("");
         require(sent, "ETH transfer failed");
+        emit DeclarationCancelled(taskId, msg.sender);
     }
 }
