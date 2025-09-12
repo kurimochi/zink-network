@@ -19,7 +19,7 @@ use tokio::{
 
 sol!(
     #[sol(rpc)]
-    ZINKNET,
+    ZinKNetContract,
     "../../out/zinknet.sol/ZinKNetContract.json"
 );
 
