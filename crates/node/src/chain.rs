@@ -6,7 +6,6 @@ use alloy::{
     sol,
     sol_types::SolEvent,
 };
-use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, error::Error, time::Duration};
 use tokio::time::sleep;
 
@@ -14,15 +13,6 @@ sol!(
     #[sol(rpc)]
     ZinKNetContract,
     "../../out/zinknet.sol/ZinKNetContract.json"
-);
-
-sol!(
-    #[derive(Serialize, Deserialize)]
-    struct Bid {
-        uint256 taskId;
-        uint256 bidAmount;
-        address bidder;
-    }
 );
 
 // Use when RPC supports event subscription
