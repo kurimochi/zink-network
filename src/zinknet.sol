@@ -11,7 +11,6 @@ contract ZinKNetContract {
 
     struct Task {
         address requestor;
-        bytes32 taskHash;
         uint256 reward;
         address prover;
         TaskStatus status;
@@ -28,7 +27,7 @@ contract ZinKNetContract {
     mapping(address => uint256) public activeTask;
     mapping(uint256 => EnumerableSet.AddressSet) private _taskDeclarations;
 
-    event TaskCreated(uint256 indexed taskId, address indexed requestor, bytes32 indexed taskHash, uint256 reward);
+    event TaskCreated(uint256 indexed taskId, address indexed requestor, uint256 reward);
     event WorkDeclared(uint256 indexed taskId, address indexed prover);
     event DeclarationCancelled(uint256 indexed taskId, address indexed prover);
 
@@ -40,19 +39,18 @@ contract ZinKNetContract {
         return _taskDeclarations[taskId].values();
     }
 
-    function createTask(bytes32 taskHash, uint256 reward) external payable {
+    function createTask(uint256 reward) external payable {
         require(msg.value == reward + verificationGas, "Incorrect ETH sent");
         require(reward > 0, "Reward must be greater than zero");
 
         _taskIdCounter++;
         tasks[_taskIdCounter] = Task({
             requestor: msg.sender,
-            taskHash: taskHash,
             reward: reward,
             prover: address(0),
             status: TaskStatus.Open
         });
-        emit TaskCreated(_taskIdCounter, msg.sender, taskHash, reward);
+        emit TaskCreated(_taskIdCounter, msg.sender, reward);
     }
 
     function declareWork(uint256 taskId) external payable {
