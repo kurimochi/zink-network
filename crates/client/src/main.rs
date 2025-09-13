@@ -81,16 +81,16 @@ pub fn setup_gossipsub(
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    #[arg(short, long)]
+    #[arg(long)]
     reward: String,
-    #[arg(short, long)]
-    elf_path: String,
-    #[arg(short, long)]
+    #[arg(long)]
+    elf: String,
+    #[arg(long)]
     private_key: String,
-    #[arg(short, long)]
-    contract_address: String,
-    #[arg(short, long)]
-    rpc_url: String,
+    #[arg(long)]
+    contract: String,
+    #[arg(long)]
+    rpc: String,
 }
 
 async fn find_subscribed_peer(
@@ -158,7 +158,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
     let signer: PrivateKeySigner = cli.private_key.parse()?;
     let reward = U256::from_str_radix(&cli.reward, 10)?;
-    let rpc_url = Url::parse(&cli.rpc_url)?;
+    let rpc_url = Url::parse(&cli.rpc)?;
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
     let (mut swarm, topic) = setup_gossipsub("test")?;
@@ -166,13 +166,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     find_subscribed_peer(&mut swarm, &topic).await?;
 
-    let task_id =
-        create_onchain_task(&signer, &provider, cli.contract_address.parse()?, reward).await?;
+    let task_id = create_onchain_task(&signer, &provider, cli.contract.parse()?, reward).await?;
     // Uncomment tokio::time::sleep if you want to send TaskCreated to node first
     // tokio::time::sleep(Duration::from_secs(5)).await;
 
     println!("Preparing and publishing payload...");
-    let elf = std::fs::read(cli.elf_path)?;
+    let elf = std::fs::read(cli.elf)?;
     let signature = signer.sign_message_sync(&elf)?;
     let elf_payload = (task_id, elf.clone(), signature);
 
