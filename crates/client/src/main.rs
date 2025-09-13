@@ -167,9 +167,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // tokio::time::sleep(Duration::from_secs(5)).await;
 
     println!("Preparing and publishing payload...");
-    let test_binary = b"Hello, world!";
-    let signature = signer.sign_message_sync(test_binary)?;
-    let elf_payload = (task_id, test_binary.to_vec(), signature);
+    let elf = std::fs::read(env::var("ELF_PATH")?)?;
+    let signature = signer.sign_message_sync(&elf)?;
+    let elf_payload = (task_id, elf.clone(), signature);
 
     let payload_bin = bincode::serialize(&elf_payload)?;
 
