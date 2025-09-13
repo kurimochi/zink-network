@@ -3,17 +3,11 @@ use alloy::{
     primitives::{Address, U256},
     providers::Provider,
     rpc::types::{Filter, Log},
-    sol,
     sol_types::SolEvent,
 };
+use common::chain::ZinKNetContract;
 use std::{collections::HashMap, error::Error, time::Duration};
 use tokio::time::sleep;
-
-sol!(
-    #[sol(rpc)]
-    ZinKNetContract,
-    "../../out/zinknet.sol/ZinKNetContract.json"
-);
 
 // Use when RPC supports event subscription
 // If not, use setup_ethlistener_polling

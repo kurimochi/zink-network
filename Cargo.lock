@@ -1822,6 +1822,7 @@ dependencies = [
  "alloy",
  "bincode",
  "clap",
+ "common",
  "dotenv",
  "libp2p",
  "tokio",
@@ -1855,6 +1856,15 @@ name = "colorchoice"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
+
+[[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "libp2p",
+ "tokio",
+]
 
 [[package]]
 name = "compression-codecs"
@@ -4156,6 +4166,7 @@ dependencies = [
  "alloy",
  "bincode",
  "clap",
+ "common",
  "dotenv",
  "libp2p",
  "once_cell",

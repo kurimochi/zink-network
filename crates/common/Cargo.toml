@@ -1,0 +1,9 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { version = "1.0.30", features = ["sol-types"] }
+libp2p = { version = "0.56.0", features = ["gossipsub", "macros", "mdns", "noise", "tcp", "tokio", "yamux"] }
+tokio = { version = "1.47.1", features = ["io-util"] }

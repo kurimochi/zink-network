@@ -13,8 +13,9 @@ mod config;
 mod p2p;
 
 use chain::{handle_blockchain_event, setup_ethlistener_polling};
+use common::p2p::setup_gossipsub;
 use config::{Config, get_signer_from_env};
-use p2p::{handle_swarm_event, setup_gossipsub};
+use p2p::handle_swarm_event;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]

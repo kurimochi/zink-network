@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 alloy = { version = "1.0.30", features = ["eip712", "provider-ws", "providers", "signers"] }
 bincode = "1.3.3"
+common = { path = "../common" }
 dotenv = "0.15.0"
 libp2p = { version = "0.56.0", features = ["gossipsub", "macros", "mdns", "noise", "tcp", "tokio", "yamux"] }
 serde = "1.0.219"
