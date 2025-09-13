@@ -1818,6 +1818,14 @@ checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 [[package]]
 name = "client"
 version = "0.1.0"
+dependencies = [
+ "alloy",
+ "bincode",
+ "clap",
+ "dotenv",
+ "libp2p",
+ "tokio",
+]
 
 [[package]]
 name = "coins-ledger"

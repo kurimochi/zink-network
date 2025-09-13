@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+alloy = "1.0.30"
+bincode = "1.3.3"
+clap = { version = "4.5.47", features = ["derive"] }
+dotenv = "0.15.0"
+libp2p = { version = "0.56.0", features = ["gossipsub", "macros", "mdns", "noise", "tcp", "tokio", "yamux"] }
+tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread"] }
