@@ -39,7 +39,7 @@ contract ZinKNetContract {
         return _taskDeclarations[taskId].values();
     }
 
-    function createTask(uint256 reward) external payable {
+    function createTask(uint256 reward) external payable returns (uint256) {
         require(msg.value == reward + verificationGas, "Incorrect ETH sent");
         require(reward > 0, "Reward must be greater than zero");
 
@@ -51,6 +51,7 @@ contract ZinKNetContract {
             status: TaskStatus.Open
         });
         emit TaskCreated(_taskIdCounter, msg.sender, reward);
+        return _taskIdCounter;
     }
 
     function declareWork(uint256 taskId) external payable {
