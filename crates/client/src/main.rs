@@ -14,7 +14,6 @@ use libp2p::{
     tcp, yamux,
 };
 use std::{
-    env,
     error::Error,
     hash::{DefaultHasher, Hash, Hasher},
     time::Duration,
@@ -83,10 +82,15 @@ pub fn setup_gossipsub(
 #[command(version, about, long_about = None)]
 struct Cli {
     #[arg(short, long)]
-    private_key_name: String,
-
-    #[arg(short, long)]
     reward: String,
+    #[arg(short, long)]
+    elf_path: String,
+    #[arg(short, long)]
+    private_key: String,
+    #[arg(short, long)]
+    contract_address: String,
+    #[arg(short, long)]
+    rpc_url: String,
 }
 
 async fn find_subscribed_peer(
@@ -122,10 +126,10 @@ async fn find_subscribed_peer(
 async fn create_onchain_task<P: Provider + Clone>(
     signer: &PrivateKeySigner,
     provider: &P,
+    contract_address: Address,
     reward: U256,
 ) -> Result<U256, Box<dyn Error>> {
     println!("Creating task on blockchain...");
-    let contract_address: Address = env::var("CONTRACT_ADDRESS")?.parse()?;
     let contract = ZinKNetContract::new(contract_address, provider);
 
     let verification_gas = contract.verificationGas().call().await?;
@@ -152,9 +156,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
 
     let cli = Cli::parse();
-    let signer: PrivateKeySigner = env::var(cli.private_key_name)?.parse()?;
+    let signer: PrivateKeySigner = cli.private_key.parse()?;
     let reward = U256::from_str_radix(&cli.reward, 10)?;
-    let rpc_url = Url::parse(&env::var("HTTP_RPC_URL")?)?;
+    let rpc_url = Url::parse(&cli.rpc_url)?;
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
     let (mut swarm, topic) = setup_gossipsub("test")?;
@@ -162,12 +166,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     find_subscribed_peer(&mut swarm, &topic).await?;
 
-    let task_id = create_onchain_task(&signer, &provider, reward).await?;
+    let task_id =
+        create_onchain_task(&signer, &provider, cli.contract_address.parse()?, reward).await?;
     // Uncomment tokio::time::sleep if you want to send TaskCreated to node first
     // tokio::time::sleep(Duration::from_secs(5)).await;
 
     println!("Preparing and publishing payload...");
-    let elf = std::fs::read(env::var("ELF_PATH")?)?;
+    let elf = std::fs::read(cli.elf_path)?;
     let signature = signer.sign_message_sync(&elf)?;
     let elf_payload = (task_id, elf.clone(), signature);
 
