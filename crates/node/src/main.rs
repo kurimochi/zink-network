@@ -372,8 +372,14 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(logger_widget, chunks[3]);
 
     // Footer
-    let footer_content = Paragraph::new("[←/→: Switch Tab] [↑/↓: Scroll] [q: Quit]")
-        .style(Style::default().fg(Color::LightCyan))
-        .alignment(Alignment::Center);
+    let footer_content = match app.active_tab {
+        0 => Paragraph::new("[←/→: Switch Tab] [↑/↓: Scroll Tasks] [q: Quit]")
+            .style(Style::default().fg(Color::LightCyan))
+            .alignment(Alignment::Center),
+        1 => Paragraph::new("[←/→: Switch Tab] [q: Quit]")
+            .style(Style::default().fg(Color::LightCyan))
+            .alignment(Alignment::Center),
+        _ => unreachable!(),
+    };
     f.render_widget(footer_content, chunks[4]);
 }
