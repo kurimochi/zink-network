@@ -21,7 +21,7 @@ use log::LevelFilter;
 use ratatui::{
     Frame, Terminal,
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Tabs},
@@ -29,7 +29,7 @@ use ratatui::{
 use std::{collections::HashMap, error::Error, io, time::Duration};
 use tokio::select;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
-use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget};
+use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget, TuiTracingSubscriberLayer};
 
 mod chain;
 mod p2p;
@@ -122,7 +122,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // --- Logger Setup ---
     tui_logger::init_logger(LevelFilter::Info).unwrap();
     tracing_subscriber::registry()
-        .with(tui_logger::TuiTracingSubscriberLayer)
+        .with(TuiTracingSubscriberLayer)
         .init();
 
     dotenv().ok();
@@ -260,11 +260,11 @@ fn ui(f: &mut Frame, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints(
             [
-                Constraint::Length(3), // Header
+                Constraint::Length(1), // Header
                 Constraint::Length(3), // Tabs
                 Constraint::Min(0),    // Main content
                 Constraint::Length(8), // Log panel
-                Constraint::Length(3), // Footer
+                Constraint::Length(1), // Footer
             ]
             .as_ref(),
         )
@@ -272,13 +272,12 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Header
     let header_title = format!(
-        " ZinKNet Node [Block: {} | Peers: {}] ",
+        "ZinKNet Node | Block: {} | Peers: {}",
         app.block_number
             .map_or_else(|| "...".to_string(), |b| b.to_string()),
         app.connected_peers
     );
-    let header =
-        Paragraph::new(header_title).block(Block::default().borders(Borders::ALL).title("Header"));
+    let header = Paragraph::new(header_title).alignment(Alignment::Center);
     f.render_widget(header, chunks[0]);
 
     // Tabs
@@ -374,7 +373,7 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Footer
     let footer_content = Paragraph::new("[←/→: Switch Tab] [↑/↓: Scroll] [q: Quit]")
-        .style(Style::default().fg(Color::LightCyan));
-    let footer = footer_content.block(Block::default().borders(Borders::ALL).title("Footer"));
-    f.render_widget(footer, chunks[4]);
+        .style(Style::default().fg(Color::LightCyan))
+        .alignment(Alignment::Center);
+    f.render_widget(footer_content, chunks[4]);
 }
