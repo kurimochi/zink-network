@@ -8,7 +8,7 @@ use clap::Parser;
 use common::{
     chain::ZinKNet,
     config::CommonConfig,
-    p2p::{Behaviour, BehaviourEvent, setup_gossipsub},
+    p2p::{Behaviour, BehaviourEvent, SwarmExt},
 };
 use libp2p::{
     futures::StreamExt,
@@ -69,7 +69,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let rpc_url = Url::parse(&cli.common.rpc_url)?;
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
-    let (mut swarm, topic) = setup_gossipsub("test")?;
+    let mut swarm = Behaviour::new_swarm()?;
+    let topic = swarm.subscribe("test")?;
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
     find_subscribed_peer(&mut swarm, &topic).await?;

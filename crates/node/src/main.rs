@@ -5,7 +5,11 @@ use alloy::{
     transports::ws::WsConnect,
 };
 use clap::Parser;
-use common::{chain::ZinKNet, config::CommonConfig, p2p::setup_gossipsub};
+use common::{
+    chain::ZinKNet,
+    config::CommonConfig,
+    p2p::{Behaviour, SwarmExt},
+};
 use dotenv::dotenv;
 use libp2p::futures::StreamExt;
 use std::{collections::HashMap, error::Error};
@@ -35,7 +39,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Your address: {}", user_addr);
 
     // P2P Setup
-    let (mut swarm, _) = setup_gossipsub("test")?;
+    let mut swarm = Behaviour::new_swarm()?;
+    let _ = swarm.subscribe("test")?;
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
     // Blockchain Setup
