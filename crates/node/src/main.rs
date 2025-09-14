@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::{Address, U256},
+    primitives::{Address, U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::ws::WsConnect,
@@ -23,7 +23,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Tabs},
+    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Tabs},
 };
 use std::{collections::HashMap, error::Error, io, time::Duration};
 use tokio::select;
@@ -59,6 +59,7 @@ struct App {
     pending_tasks: HashMap<U256, (Address, U256)>, // taskId -> (requestor, reward)
     pending_elfs: HashMap<U256, (Vec<u8>, Address)>, // taskId -> (elf_bytes, signer)
     ready_tasks: HashMap<U256, ReadyTask>,
+    table_state: TableState,
 }
 
 impl App {
@@ -74,7 +75,42 @@ impl App {
             pending_tasks: HashMap::new(),
             pending_elfs: HashMap::new(),
             ready_tasks: HashMap::new(),
+            table_state: TableState::default(),
         }
+    }
+
+    pub fn next_task(&mut self) {
+        if self.ready_tasks.is_empty() {
+            return;
+        }
+        let i = match self.table_state.selected() {
+            Some(i) => {
+                if i >= self.ready_tasks.len() - 1 {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.table_state.select(Some(i));
+    }
+
+    pub fn previous_task(&mut self) {
+        if self.ready_tasks.is_empty() {
+            return;
+        }
+        let i = match self.table_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.ready_tasks.len() - 1
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.table_state.select(Some(i));
     }
 }
 
@@ -103,10 +139,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // --- App Creation and Main Loop ---
-    let app = App::new(user_addr, local_peer_id);
+    let mut app = App::new(user_addr, local_peer_id);
+
     let res = run_app(
         &mut terminal,
-        app,
+        &mut app,
         &mut chain_stream,
         &mut swarm,
         &provider,
@@ -132,7 +169,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn run_app<B, P, T>(
     terminal: &mut Terminal<B>,
-    mut app: App,
+    app: &mut App,
     chain_stream: &mut T,
     swarm: &mut libp2p::Swarm<Behaviour>,
     provider: &P,
@@ -146,7 +183,7 @@ where
     let mut block_update_interval = tokio::time::interval(Duration::from_secs(5));
 
     loop {
-        terminal.draw(|f| ui(f, &mut app))?;
+        terminal.draw(|f| ui(f, app))?;
 
         // Handle key inputs (non-blocking)
         if event::poll(Duration::from_millis(50))? {
@@ -155,6 +192,8 @@ where
                     KeyCode::Char('q') => app.running = false,
                     KeyCode::Right => app.active_tab = (app.active_tab + 1) % 2,
                     KeyCode::Left => app.active_tab = (app.active_tab + 2 - 1) % 2,
+                    KeyCode::Down => app.next_task(),
+                    KeyCode::Up => app.previous_task(),
                     _ => {}
                 }
             }
@@ -252,8 +291,34 @@ fn ui(f: &mut Frame, app: &mut App) {
     let main_chunk = chunks[2];
     match app.active_tab {
         0 => {
-            let tasks_block = Block::default().borders(Borders::ALL).title("Ready Tasks");
-            f.render_widget(tasks_block, main_chunk);
+            let header_cells = ["Task ID", "Requestor", "Reward (ETH)", "Declarations"]
+                .iter()
+                .map(|h| Cell::from(*h).style(Style::default().fg(Color::Red)));
+            let header = Row::new(header_cells).height(1).bottom_margin(1);
+
+            let rows = app.ready_tasks.values().map(|task| {
+                let reward_eth = format_ether(task.reward);
+                let cells = vec![
+                    Cell::from(task.task_id.to_string()),
+                    Cell::from(task.requestor.to_string()),
+                    Cell::from(reward_eth),
+                    Cell::from(task.declarations.to_string()),
+                ];
+                Row::new(cells).height(1)
+            });
+
+            let widths = [
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+                Constraint::Percentage(25),
+            ];
+            let table = Table::new(rows, widths)
+                .header(header)
+                .block(Block::default().borders(Borders::ALL).title("Ready Tasks"))
+                .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+
+            f.render_stateful_widget(table, main_chunk, &mut app.table_state);
         }
         1 => {
             let mut info_lines = vec![
@@ -287,8 +352,8 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(log_block, chunks[3]);
 
     // Footer
-    let footer_content =
-        Paragraph::new("[←/→: Switch Tab, q: Quit]").style(Style::default().fg(Color::LightCyan));
+    let footer_content = Paragraph::new("[←/→: Switch Tab, ↑/↓: Scroll, q: Quit]")
+        .style(Style::default().fg(Color::LightCyan));
     let footer = footer_content.block(Block::default().borders(Borders::ALL).title("Footer"));
     f.render_widget(footer, chunks[4]);
 }
