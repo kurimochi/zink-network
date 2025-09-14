@@ -1,5 +1,5 @@
 use alloy::{
-    primitives::Address,
+    primitives::{Address, U256},
     providers::{Provider, ProviderBuilder},
     signers::local::PrivateKeySigner,
     transports::ws::WsConnect,
@@ -25,7 +25,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Tabs},
 };
-use std::{error::Error, io, time::Duration};
+use std::{collections::HashMap, error::Error, io, time::Duration};
 use tokio::select;
 
 mod chain;
@@ -38,6 +38,15 @@ struct Cli {
     common: CommonConfig,
 }
 
+// Data structure for a task that is ready for execution
+#[derive(Clone)]
+pub struct ReadyTask {
+    pub task_id: U256,
+    pub requestor: Address,
+    pub reward: U256,
+    pub declarations: U256,
+}
+
 // Application state
 struct App {
     running: bool,
@@ -47,6 +56,9 @@ struct App {
     listeners: Vec<String>,
     block_number: Option<u64>,
     connected_peers: usize,
+    pending_tasks: HashMap<U256, (Address, U256)>, // taskId -> (requestor, reward)
+    pending_elfs: HashMap<U256, (Vec<u8>, Address)>, // taskId -> (elf_bytes, signer)
+    ready_tasks: HashMap<U256, ReadyTask>,
 }
 
 impl App {
@@ -59,6 +71,9 @@ impl App {
             listeners: Vec::new(),
             block_number: None,
             connected_peers: 0,
+            pending_tasks: HashMap::new(),
+            pending_elfs: HashMap::new(),
+            ready_tasks: HashMap::new(),
         }
     }
 }
@@ -89,7 +104,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // --- App Creation and Main Loop ---
     let app = App::new(user_addr, local_peer_id);
-    let res = run_app(&mut terminal, app, &mut chain_stream, &mut swarm, &provider).await;
+    let res = run_app(
+        &mut terminal,
+        app,
+        &mut chain_stream,
+        &mut swarm,
+        &provider,
+        &zinknet,
+    )
+    .await;
 
     // --- TUI Cleanup ---
     disable_raw_mode()?;
@@ -113,6 +136,7 @@ async fn run_app<B, P, T>(
     chain_stream: &mut T,
     swarm: &mut libp2p::Swarm<Behaviour>,
     provider: &P,
+    zinknet: &ZinKNet<P>,
 ) -> io::Result<()>
 where
     B: Backend,
@@ -145,15 +169,30 @@ where
                     app.block_number = Some(bn);
                 }
             }
-            Some(_log) = chain_stream.next() => {
-                // TODO: Process blockchain log
+            Some(log) = chain_stream.next() => {
+                let _ = chain::handle_blockchain_event(
+                    log,
+                    zinknet,
+                    &mut app.pending_tasks,
+                    &mut app.pending_elfs,
+                    &mut app.ready_tasks,
+                ).await;
+                // TODO: Log errors from handle_blockchain_event
             }
             event = swarm.select_next_some() => {
                 if let libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } = &event {
                     app.listeners.push(address.to_string());
                 }
                 app.connected_peers = swarm.behaviour().gossipsub.all_peers().count();
-                // TODO: Process swarm event
+                let _ = p2p::handle_swarm_event(
+                    event,
+                    swarm,
+                    zinknet,
+                    &mut app.pending_tasks,
+                    &mut app.pending_elfs,
+                    &mut app.ready_tasks,
+                ).await;
+                // TODO: Log errors from handle_swarm_event
             }
             // Default branch to prevent select! from blocking forever
             _ = tokio::time::sleep(Duration::from_millis(1)) => {}
