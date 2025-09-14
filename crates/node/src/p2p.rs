@@ -1,8 +1,8 @@
-use alloy::{
-    primitives::{Address, U256},
-    signers::Signature,
+use alloy::primitives::{Address, U256};
+use common::{
+    p2p::{Behaviour, BehaviourEvent},
+    payload::ElfPayload,
 };
-use common::p2p::{Behaviour, BehaviourEvent};
 use libp2p::{gossipsub, mdns, swarm::SwarmEvent};
 use std::{collections::HashMap, error::Error};
 
@@ -33,9 +33,9 @@ pub fn handle_swarm_event(
             message_id: _,
             message,
         })) => {
-            let (task_id, elf, signature): (U256, Vec<u8>, Signature) =
-                bincode::deserialize(&message.data)?;
-            let recover_address = signature.recover_address_from_msg(&elf)?;
+            let payload: ElfPayload = bincode::deserialize(&message.data)?;
+            let task_id = payload.task_id;
+            let recover_address = payload.signature.recover_address_from_msg(&payload.elf)?;
             if task_queue.contains_key(&task_id) {
                 if recover_address != task_queue[&task_id] {
                     println!(
@@ -50,7 +50,7 @@ pub fn handle_swarm_event(
                 );
                 task_queue.remove(&task_id);
             } else {
-                elf_queue.insert(task_id, (elf, recover_address));
+                elf_queue.insert(task_id, (payload.elf, recover_address));
                 println!("ELF come first");
             }
         }

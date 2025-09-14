@@ -9,6 +9,7 @@ use common::{
     chain::ZinKNet,
     config::CommonConfig,
     p2p::{Behaviour, BehaviourEvent, SwarmExt},
+    payload::ElfPayload,
 };
 use libp2p::{
     futures::StreamExt,
@@ -84,7 +85,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("Preparing and publishing payload...");
     let elf = std::fs::read(cli.elf)?;
     let signature = signer.sign_message_sync(&elf)?;
-    let elf_payload = (task_id, elf.clone(), signature);
+    let elf_payload = ElfPayload {
+        task_id,
+        elf,
+        signature,
+    };
 
     let payload_bin = bincode::serialize(&elf_payload)?;
 

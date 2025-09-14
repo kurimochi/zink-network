@@ -13,5 +13,6 @@ clap = { version = "4.5.47", features = ["derive"] }
 common = { path = "crates/common" }
 dotenv = "0.15.0"
 libp2p = { version = "0.56.0", features = ["gossipsub", "macros", "mdns", "noise", "tcp", "tokio", "yamux"] }
+serde = "1.0.221"
 tokio = "1.47.1"
 tokio-stream = "0.1.17"

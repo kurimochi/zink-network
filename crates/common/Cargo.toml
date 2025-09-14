@@ -7,5 +7,6 @@ edition = "2024"
 alloy = { workspace = true, features = ["sol-types", "pubsub"] }
 clap = { workspace = true, features = ["derive", "env"] }
 libp2p = { workspace = true }
+serde = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
