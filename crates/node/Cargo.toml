@@ -8,7 +8,9 @@ alloy = { workspace = true, features = ["provider-ws", "providers", "signers"] }
 bincode = { workspace = true }
 clap = { workspace = true }
 common = { workspace = true }
+crossterm = { workspace = true }
 dotenv = { workspace = true }
 libp2p = { workspace = true }
+ratatui = { workspace = true, features = ["all-widgets"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { workspace = true }

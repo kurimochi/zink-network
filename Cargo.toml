@@ -16,3 +16,5 @@ libp2p = { version = "0.56.0", features = ["gossipsub", "macros", "mdns", "noise
 serde = "1.0.221"
 tokio = "1.47.1"
 tokio-stream = "0.1.17"
+crossterm = "0.29.0"
+ratatui = "0.29.0"
