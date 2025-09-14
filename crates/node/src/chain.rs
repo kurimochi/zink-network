@@ -7,6 +7,7 @@ use alloy::{
 };
 use common::chain::{ZinKNet, ZinKNetContract};
 use std::{collections::HashMap, error::Error};
+use tracing::{info, warn};
 
 pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
     log: Log,
@@ -19,17 +20,20 @@ pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
         // --- TaskCreated Event ---
         Some(&ZinKNetContract::TaskCreated::SIGNATURE_HASH) => {
             let decoded = log.log_decode::<ZinKNetContract::TaskCreated>()?;
-            let ZinKNetContract::TaskCreated {
-                taskId,
-                requestor,
-                reward,
-            } = decoded.inner.data;
+            let ZinKNetContract::TaskCreated { taskId, requestor, reward } = decoded.inner.data;
+            info!(
+                "TaskCreated event received for task ID: {}, Requestor: {}, Reward: {}",
+                taskId, requestor, reward
+            );
 
             // Check if the corresponding ELF has already arrived
             if let Some((_elf_bytes, elf_signer)) = pending_elfs.remove(&taskId) {
                 // ELF came first. Now we have a pair.
                 if elf_signer != requestor {
-                    // TODO: Handle address mismatch. For now, just log and ignore.
+                    warn!(
+                        "ELF signer mismatch for task {}. Expected: {}, Got: {}",
+                        taskId, requestor, elf_signer
+                    );
                     return Ok(());
                 }
 
@@ -42,36 +46,42 @@ pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
                     reward,
                     declarations,
                 };
+                info!("Task {} is now ready for execution.", taskId);
                 ready_tasks.insert(taskId, new_ready_task);
-                // TODO: Log that a task is ready
             } else {
                 // Task came first. Add to pending queue.
+                info!("Task {} is pending ELF.", taskId);
                 pending_tasks.insert(taskId, (requestor, reward));
-                // TODO: Log that a task is pending
             }
         }
 
         // --- WorkDeclared Event ---
         Some(&ZinKNetContract::WorkDeclared::SIGNATURE_HASH) => {
             let decoded = log.log_decode::<ZinKNetContract::WorkDeclared>()?;
-            let ZinKNetContract::WorkDeclared { taskId, prover: _ } = decoded.inner.data;
+            let ZinKNetContract::WorkDeclared { taskId, prover } = decoded.inner.data;
 
             if let Some(task) = ready_tasks.get_mut(&taskId) {
                 task.declarations += U256::from(1);
-                // TODO: Log declaration increment
+                info!(
+                    "WorkDeclared event for task {}. New count: {}. Prover: {}",
+                    taskId, task.declarations, prover
+                );
             }
         }
 
         // --- DeclarationCancelled Event ---
         Some(&ZinKNetContract::DeclarationCancelled::SIGNATURE_HASH) => {
             let decoded = log.log_decode::<ZinKNetContract::DeclarationCancelled>()?;
-            let ZinKNetContract::DeclarationCancelled { taskId, prover: _ } = decoded.inner.data;
+            let ZinKNetContract::DeclarationCancelled { taskId, prover } = decoded.inner.data;
 
             if let Some(task) = ready_tasks.get_mut(&taskId) {
                 if task.declarations > U256::ZERO {
                     task.declarations -= U256::from(1);
                 }
-                // TODO: Log declaration decrement
+                info!(
+                    "DeclarationCancelled event for task {}. New count: {}. Prover: {}",
+                    taskId, task.declarations, prover
+                );
             }
         }
         _ => {}

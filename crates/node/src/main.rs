@@ -17,6 +17,7 @@ use crossterm::{
 };
 use dotenv::dotenv;
 use libp2p::futures::StreamExt;
+use log::LevelFilter;
 use ratatui::{
     Frame, Terminal,
     backend::{Backend, CrosstermBackend},
@@ -27,6 +28,8 @@ use ratatui::{
 };
 use std::{collections::HashMap, error::Error, io, time::Duration};
 use tokio::select;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget};
 
 mod chain;
 mod p2p;
@@ -116,6 +119,12 @@ impl App {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // --- Logger Setup ---
+    tui_logger::init_logger(LevelFilter::Info).unwrap();
+    tracing_subscriber::registry()
+        .with(tui_logger::TuiTracingSubscriberLayer)
+        .init();
+
     dotenv().ok();
     let cli = Cli::parse();
 
@@ -209,29 +218,31 @@ where
                 }
             }
             Some(log) = chain_stream.next() => {
-                let _ = chain::handle_blockchain_event(
+                if let Err(e) = chain::handle_blockchain_event(
                     log,
                     zinknet,
                     &mut app.pending_tasks,
                     &mut app.pending_elfs,
                     &mut app.ready_tasks,
-                ).await;
-                // TODO: Log errors from handle_blockchain_event
+                ).await {
+                    log::error!("Failed to handle blockchain event: {}", e);
+                }
             }
             event = swarm.select_next_some() => {
                 if let libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } = &event {
                     app.listeners.push(address.to_string());
                 }
                 app.connected_peers = swarm.behaviour().gossipsub.all_peers().count();
-                let _ = p2p::handle_swarm_event(
+                if let Err(e) = p2p::handle_swarm_event(
                     event,
                     swarm,
                     zinknet,
                     &mut app.pending_tasks,
                     &mut app.pending_elfs,
                     &mut app.ready_tasks,
-                ).await;
-                // TODO: Log errors from handle_swarm_event
+                ).await {
+                    log::error!("Failed to handle swarm event: {}", e);
+                }
             }
             // Default branch to prevent select! from blocking forever
             _ = tokio::time::sleep(Duration::from_millis(1)) => {}
@@ -347,12 +358,22 @@ fn ui(f: &mut Frame, app: &mut App) {
         _ => unreachable!(),
     };
 
-    // Log Panel (placeholder)
-    let log_block = Block::default().borders(Borders::ALL).title("Logs");
-    f.render_widget(log_block, chunks[3]);
+    // Log Panel
+    let logger_widget = TuiLoggerWidget::default()
+        .block(Block::default().title("Logs").borders(Borders::ALL))
+        .output_separator('|')
+        .output_timestamp(Some("%H:%M:%S".to_string()))
+        .output_level(Some(TuiLoggerLevelOutput::Abbreviated))
+        .output_target(false)
+        .output_file(false)
+        .output_line(false)
+        .style_error(Style::default().fg(Color::Red))
+        .style_warn(Style::default().fg(Color::Yellow))
+        .style_info(Style::default().fg(Color::Cyan));
+    f.render_widget(logger_widget, chunks[3]);
 
     // Footer
-    let footer_content = Paragraph::new("[←/→: Switch Tab, ↑/↓: Scroll, q: Quit]")
+    let footer_content = Paragraph::new("[←/→: Switch Tab] [↑/↓: Scroll] [q: Quit]")
         .style(Style::default().fg(Color::LightCyan));
     let footer = footer_content.block(Block::default().borders(Borders::ALL).title("Footer"));
     f.render_widget(footer, chunks[4]);
