@@ -16,8 +16,8 @@ alloy::sol!(
 );
 
 pub struct ZinKNet<P> {
-    provider: P,
-    contract: ZinKNetContract::ZinKNetContractInstance<P>,
+    pub provider: P,
+    pub contract: ZinKNetContract::ZinKNetContractInstance<P>,
 }
 
 impl<P: Provider + Clone> ZinKNet<P> {
