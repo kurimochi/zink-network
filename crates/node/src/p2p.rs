@@ -1,4 +1,4 @@
-use crate::ReadyTask;
+use crate::ReadyCompetition;
 use alloy::{
     primitives::{Address, U256},
     providers::Provider,
@@ -16,9 +16,9 @@ pub async fn handle_swarm_event<P: Provider + Send + Sync>(
     event: SwarmEvent<BehaviourEvent>,
     swarm: &mut libp2p::Swarm<Behaviour>,
     zinknet: &ZinKNet<P>,
-    pending_tasks: &mut HashMap<U256, (Address, U256)>,
-    pending_elfs: &mut HashMap<U256, (Vec<u8>, Address)>,
-    ready_tasks: &mut HashMap<U256, ReadyTask>,
+    chain_only_competitions: &mut HashMap<U256, (Address, U256)>,
+    elf_only_competitions: &mut HashMap<U256, (Vec<u8>, Address)>,
+    ready_competitions: &mut HashMap<U256, ReadyCompetition>,
 ) -> Result<(), Box<dyn Error>> {
     match event {
         SwarmEvent::Behaviour(BehaviourEvent::Gossipsub(gossipsub::Event::Message {
@@ -26,41 +26,51 @@ pub async fn handle_swarm_event<P: Provider + Send + Sync>(
             ..
         })) => {
             if let Ok(payload) = bincode::deserialize::<ElfPayload>(&message.data) {
-                let task_id = payload.task_id;
-                info!("Received ELF for task ID: {}", task_id);
+                let competition_id = payload.competition_id;
+                info!("Received ELF for competition ID: {}", competition_id);
                 if let Ok(elf_signer) = payload.signature.recover_address_from_msg(&payload.elf) {
-                    // Check if the corresponding Task has already arrived
-                    if let Some((requestor, reward)) = pending_tasks.remove(&task_id) {
-                        // Task came first. Now we have a pair.
-                        if elf_signer != requestor {
+                    // Check if the corresponding Competition has already arrived
+                    if let Some((issuer, reward)) = chain_only_competitions.remove(&competition_id)
+                    {
+                        // Competition came first. Now we have a pair.
+                        if elf_signer != issuer {
                             warn!(
-                                "ELF signer mismatch for task {}. Expected: {}, Got: {}",
-                                task_id, requestor, elf_signer
+                                "ELF signer mismatch for competition {}. Expected: {}, Got: {}",
+                                competition_id, issuer, elf_signer
                             );
-                            // Re-insert the task to pending queue as the ELF was invalid
-                            pending_tasks.insert(task_id, (requestor, reward));
+                            // Re-insert the competition to pending queue as the ELF was invalid
+                            chain_only_competitions.insert(competition_id, (issuer, reward));
                             return Ok(());
                         }
 
-                        // Fetch declaration count from the contract
-                        let declarations =
-                            zinknet.contract.getDeclarationCount(task_id).call().await?;
+                        // Fetch competitor count from the contract
+                        let competitors = zinknet
+                            .contract
+                            .getCompetitorCount(competition_id)
+                            .call()
+                            .await?;
 
-                        let new_ready_task = ReadyTask {
-                            task_id,
-                            requestor,
+                        let new_ready_competition = ReadyCompetition {
+                            competition_id,
+                            issuer,
                             reward,
-                            declarations,
+                            competitors,
                         };
-                        info!("Task {} is now ready for execution.", task_id);
-                        ready_tasks.insert(task_id, new_ready_task);
+                        info!("Competition {} is now ready for execution.", competition_id);
+                        ready_competitions.insert(competition_id, new_ready_competition);
                     } else {
                         // ELF came first. Add to pending queue.
-                        info!("ELF for task {} is pending TaskCreated event.", task_id);
-                        pending_elfs.insert(task_id, (payload.elf, elf_signer));
+                        info!(
+                            "ELF for competition {} is pending CompetitionOpened event.",
+                            competition_id
+                        );
+                        elf_only_competitions.insert(competition_id, (payload.elf, elf_signer));
                     }
                 } else {
-                    warn!("Failed to recover address from ELF signature for task {}", task_id);
+                    warn!(
+                        "Failed to recover address from ELF signature for competition {}",
+                        competition_id
+                    );
                 }
             } else {
                 warn!("Failed to deserialize Gossipsub message.");

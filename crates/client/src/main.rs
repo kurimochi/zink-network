@@ -77,16 +77,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     find_subscribed_peer(&mut swarm, &topic).await?;
 
     let zinknet = ZinKNet::new(provider, cli.common.contract);
-    let task_id = zinknet.create_task(&signer, reward).await?;
+    let competition_id = zinknet.open_competition(&signer, reward).await?;
 
-    // Uncomment tokio::time::sleep if you want to send TaskCreated to node first
+    // Uncomment tokio::time::sleep if you want to send CompetitionOpened to node first
     // tokio::time::sleep(Duration::from_secs(5)).await;
 
     println!("Preparing and publishing payload...");
     let elf = std::fs::read(cli.elf)?;
     let signature = signer.sign_message_sync(&elf)?;
     let elf_payload = ElfPayload {
-        task_id,
+        competition_id,
         elf,
         signature,
     };

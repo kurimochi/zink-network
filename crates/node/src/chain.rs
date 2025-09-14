@@ -1,4 +1,4 @@
-use crate::ReadyTask;
+use crate::ReadyCompetition;
 use alloy::{
     primitives::{Address, U256},
     providers::Provider,
@@ -12,75 +12,89 @@ use tracing::{info, warn};
 pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
     log: Log,
     zinknet: &ZinKNet<P>,
-    pending_tasks: &mut HashMap<U256, (Address, U256)>,
-    pending_elfs: &mut HashMap<U256, (Vec<u8>, Address)>,
-    ready_tasks: &mut HashMap<U256, ReadyTask>,
+    chain_only_competitions: &mut HashMap<U256, (Address, U256)>,
+    elf_only_competitions: &mut HashMap<U256, (Vec<u8>, Address)>,
+    ready_competitions: &mut HashMap<U256, ReadyCompetition>,
 ) -> Result<(), Box<dyn Error>> {
     match log.topic0() {
-        // --- TaskCreated Event ---
-        Some(&ZinKNetContract::TaskCreated::SIGNATURE_HASH) => {
-            let decoded = log.log_decode::<ZinKNetContract::TaskCreated>()?;
-            let ZinKNetContract::TaskCreated { taskId, requestor, reward } = decoded.inner.data;
+        // --- CompetitionOpened Event ---
+        Some(&ZinKNetContract::CompetitionOpened::SIGNATURE_HASH) => {
+            let decoded = log.log_decode::<ZinKNetContract::CompetitionOpened>()?;
+            let ZinKNetContract::CompetitionOpened {
+                competitionId,
+                issuer,
+                reward,
+            } = decoded.inner.data;
             info!(
-                "TaskCreated event received for task ID: {}, Requestor: {}, Reward: {}",
-                taskId, requestor, reward
+                "CompetitionOpened event received for competition ID: {}, Issuer: {}, Reward: {}",
+                competitionId, issuer, reward
             );
 
             // Check if the corresponding ELF has already arrived
-            if let Some((_elf_bytes, elf_signer)) = pending_elfs.remove(&taskId) {
+            if let Some((_elf_bytes, elf_signer)) = elf_only_competitions.remove(&competitionId) {
                 // ELF came first. Now we have a pair.
-                if elf_signer != requestor {
+                if elf_signer != issuer {
                     warn!(
-                        "ELF signer mismatch for task {}. Expected: {}, Got: {}",
-                        taskId, requestor, elf_signer
+                        "ELF signer mismatch for competition {}. Expected: {}, Got: {}",
+                        competitionId, issuer, elf_signer
                     );
                     return Ok(());
                 }
 
-                // Fetch declaration count from the contract
-                let declarations = zinknet.contract.getDeclarationCount(taskId).call().await?;
+                // Fetch competitor count from the contract
+                let competitors = zinknet
+                    .contract
+                    .getCompetitorCount(competitionId)
+                    .call()
+                    .await?;
 
-                let new_ready_task = ReadyTask {
-                    task_id: taskId,
-                    requestor,
+                let new_ready_competition = ReadyCompetition {
+                    competition_id: competitionId,
+                    issuer,
                     reward,
-                    declarations,
+                    competitors,
                 };
-                info!("Task {} is now ready for execution.", taskId);
-                ready_tasks.insert(taskId, new_ready_task);
+                info!("Competition {} is now ready for execution.", competitionId);
+                ready_competitions.insert(competitionId, new_ready_competition);
             } else {
-                // Task came first. Add to pending queue.
-                info!("Task {} is pending ELF.", taskId);
-                pending_tasks.insert(taskId, (requestor, reward));
+                // Competition came first. Add to pending queue.
+                info!("Competition {} is pending ELF.", competitionId);
+                chain_only_competitions.insert(competitionId, (issuer, reward));
             }
         }
 
-        // --- WorkDeclared Event ---
-        Some(&ZinKNetContract::WorkDeclared::SIGNATURE_HASH) => {
-            let decoded = log.log_decode::<ZinKNetContract::WorkDeclared>()?;
-            let ZinKNetContract::WorkDeclared { taskId, prover } = decoded.inner.data;
+        // --- CompetitionJoined Event ---
+        Some(&ZinKNetContract::CompetitionJoined::SIGNATURE_HASH) => {
+            let decoded = log.log_decode::<ZinKNetContract::CompetitionJoined>()?;
+            let ZinKNetContract::CompetitionJoined {
+                competitionId,
+                competitor,
+            } = decoded.inner.data;
 
-            if let Some(task) = ready_tasks.get_mut(&taskId) {
-                task.declarations += U256::from(1);
+            if let Some(competition) = ready_competitions.get_mut(&competitionId) {
+                competition.competitors += U256::from(1);
                 info!(
-                    "WorkDeclared event for task {}. New count: {}. Prover: {}",
-                    taskId, task.declarations, prover
+                    "CompetitionJoined event for competition {}. New count: {}. Competitor: {}",
+                    competitionId, competition.competitors, competitor
                 );
             }
         }
 
-        // --- DeclarationCancelled Event ---
-        Some(&ZinKNetContract::DeclarationCancelled::SIGNATURE_HASH) => {
-            let decoded = log.log_decode::<ZinKNetContract::DeclarationCancelled>()?;
-            let ZinKNetContract::DeclarationCancelled { taskId, prover } = decoded.inner.data;
+        // --- CompetitionLeft Event ---
+        Some(&ZinKNetContract::CompetitionLeft::SIGNATURE_HASH) => {
+            let decoded = log.log_decode::<ZinKNetContract::CompetitionLeft>()?;
+            let ZinKNetContract::CompetitionLeft {
+                competitionId,
+                competitor,
+            } = decoded.inner.data;
 
-            if let Some(task) = ready_tasks.get_mut(&taskId) {
-                if task.declarations > U256::ZERO {
-                    task.declarations -= U256::from(1);
+            if let Some(competition) = ready_competitions.get_mut(&competitionId) {
+                if competition.competitors > U256::ZERO {
+                    competition.competitors -= U256::from(1);
                 }
                 info!(
-                    "DeclarationCancelled event for task {}. New count: {}. Prover: {}",
-                    taskId, task.declarations, prover
+                    "CompetitionLeft event for competition {}. New count: {}. Competitor: {}",
+                    competitionId, competition.competitors, competitor
                 );
             }
         }

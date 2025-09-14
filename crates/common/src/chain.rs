@@ -26,31 +26,31 @@ impl<P: Provider + Clone> ZinKNet<P> {
         Self { provider, contract }
     }
 
-    pub async fn create_task(
+    pub async fn open_competition(
         &self,
         signer: &PrivateKeySigner,
         reward: U256,
     ) -> Result<U256, Box<dyn Error>> {
-        println!("Creating task on blockchain...");
+        println!("Opening competition on blockchain...");
 
-        let verification_gas = self.contract.verificationGas().call().await?;
+        let verification_fee = self.contract.verificationFee().call().await?;
         let receipt = self
             .contract
-            .createTask(reward)
-            .value(reward + verification_gas)
+            .openCompetition(reward)
+            .value(reward + verification_fee)
             .from(signer.address())
             .send()
             .await?
             .get_receipt()
             .await?;
 
-        let taskcreated_log = receipt
-            .decoded_log::<ZinKNetContract::TaskCreated>()
-            .ok_or("Failed to find or decode TaskCreated log")?;
+        let competition_opened_log = receipt
+            .decoded_log::<ZinKNetContract::CompetitionOpened>()
+            .ok_or("Failed to find or decode CompetitionOpened log")?;
 
-        let task_id = taskcreated_log.taskId;
-        println!("Created task with ID: {}", task_id);
-        Ok(task_id)
+        let competition_id = competition_opened_log.competitionId;
+        println!("Opened competition with ID: {}", competition_id);
+        Ok(competition_id)
     }
 }
 

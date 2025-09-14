@@ -41,13 +41,13 @@ struct Cli {
     common: CommonConfig,
 }
 
-// Data structure for a task that is ready for execution
+// Data structure for a competition that is ready for execution
 #[derive(Clone)]
-pub struct ReadyTask {
-    pub task_id: U256,
-    pub requestor: Address,
+pub struct ReadyCompetition {
+    pub competition_id: U256,
+    pub issuer: Address,
     pub reward: U256,
-    pub declarations: U256,
+    pub competitors: U256,
 }
 
 // Application state
@@ -59,9 +59,9 @@ struct App {
     listeners: Vec<String>,
     block_number: Option<u64>,
     connected_peers: usize,
-    pending_tasks: HashMap<U256, (Address, U256)>, // taskId -> (requestor, reward)
-    pending_elfs: HashMap<U256, (Vec<u8>, Address)>, // taskId -> (elf_bytes, signer)
-    ready_tasks: HashMap<U256, ReadyTask>,
+    chain_only_competitions: HashMap<U256, (Address, U256)>, // competitionId -> (issuer, reward)
+    elf_only_competitions: HashMap<U256, (Vec<u8>, Address)>, // competitionId -> (elf_bytes, signer)
+    ready_competitions: HashMap<U256, ReadyCompetition>,
     table_state: TableState,
 }
 
@@ -75,20 +75,20 @@ impl App {
             listeners: Vec::new(),
             block_number: None,
             connected_peers: 0,
-            pending_tasks: HashMap::new(),
-            pending_elfs: HashMap::new(),
-            ready_tasks: HashMap::new(),
+            chain_only_competitions: HashMap::new(),
+            elf_only_competitions: HashMap::new(),
+            ready_competitions: HashMap::new(),
             table_state: TableState::default(),
         }
     }
 
-    pub fn next_task(&mut self) {
-        if self.ready_tasks.is_empty() {
+    pub fn next_competition(&mut self) {
+        if self.ready_competitions.is_empty() {
             return;
         }
         let i = match self.table_state.selected() {
             Some(i) => {
-                if i >= self.ready_tasks.len() - 1 {
+                if i >= self.ready_competitions.len() - 1 {
                     0
                 } else {
                     i + 1
@@ -99,14 +99,14 @@ impl App {
         self.table_state.select(Some(i));
     }
 
-    pub fn previous_task(&mut self) {
-        if self.ready_tasks.is_empty() {
+    pub fn previous_competition(&mut self) {
+        if self.ready_competitions.is_empty() {
             return;
         }
         let i = match self.table_state.selected() {
             Some(i) => {
                 if i == 0 {
-                    self.ready_tasks.len() - 1
+                    self.ready_competitions.len() - 1
                 } else {
                     i - 1
                 }
@@ -201,8 +201,8 @@ where
                     KeyCode::Char('q') => app.running = false,
                     KeyCode::Right => app.active_tab = (app.active_tab + 1) % 2,
                     KeyCode::Left => app.active_tab = (app.active_tab + 2 - 1) % 2,
-                    KeyCode::Down => app.next_task(),
-                    KeyCode::Up => app.previous_task(),
+                    KeyCode::Down => app.next_competition(),
+                    KeyCode::Up => app.previous_competition(),
                     _ => {}
                 }
             }
@@ -221,9 +221,9 @@ where
                 if let Err(e) = chain::handle_blockchain_event(
                     log,
                     zinknet,
-                    &mut app.pending_tasks,
-                    &mut app.pending_elfs,
-                    &mut app.ready_tasks,
+                    &mut app.chain_only_competitions,
+                    &mut app.elf_only_competitions,
+                    &mut app.ready_competitions,
                 ).await {
                     log::error!("Failed to handle blockchain event: {}", e);
                 }
@@ -237,9 +237,9 @@ where
                     event,
                     swarm,
                     zinknet,
-                    &mut app.pending_tasks,
-                    &mut app.pending_elfs,
-                    &mut app.ready_tasks,
+                    &mut app.chain_only_competitions,
+                    &mut app.elf_only_competitions,
+                    &mut app.ready_competitions,
                 ).await {
                     log::error!("Failed to handle swarm event: {}", e);
                 }
@@ -281,7 +281,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(header, chunks[0]);
 
     // Tabs
-    let titles: Vec<_> = ["Tasks", "My Info"]
+    let titles: Vec<_> = ["Competitions", "My Info"]
         .iter()
         .cloned()
         .map(Line::from)
@@ -301,18 +301,18 @@ fn ui(f: &mut Frame, app: &mut App) {
     let main_chunk = chunks[2];
     match app.active_tab {
         0 => {
-            let header_cells = ["Task ID", "Requestor", "Reward (ETH)", "Declarations"]
+            let header_cells = ["Competition ID", "Issuer", "Reward (ETH)", "Competitors"]
                 .iter()
                 .map(|h| Cell::from(*h).style(Style::default().fg(Color::Red)));
             let header = Row::new(header_cells).height(1).bottom_margin(1);
 
-            let rows = app.ready_tasks.values().map(|task| {
-                let reward_eth = format_ether(task.reward);
+            let rows = app.ready_competitions.values().map(|competition| {
+                let reward_eth = format_ether(competition.reward);
                 let cells = vec![
-                    Cell::from(task.task_id.to_string()),
-                    Cell::from(task.requestor.to_string()),
+                    Cell::from(competition.competition_id.to_string()),
+                    Cell::from(competition.issuer.to_string()),
                     Cell::from(reward_eth),
-                    Cell::from(task.declarations.to_string()),
+                    Cell::from(competition.competitors.to_string()),
                 ];
                 Row::new(cells).height(1)
             });
@@ -325,7 +325,11 @@ fn ui(f: &mut Frame, app: &mut App) {
             ];
             let table = Table::new(rows, widths)
                 .header(header)
-                .block(Block::default().borders(Borders::ALL).title("Ready Tasks"))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .title("Ready Competitions"),
+                )
                 .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
             f.render_stateful_widget(table, main_chunk, &mut app.table_state);
@@ -373,7 +377,7 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Footer
     let footer_content = match app.active_tab {
-        0 => Paragraph::new("[←/→: Switch Tab] [↑/↓: Scroll Tasks] [q: Quit]")
+        0 => Paragraph::new("[←/→: Switch Tab] [↑/↓: Scroll Competitions] [q: Quit]")
             .style(Style::default().fg(Color::LightCyan))
             .alignment(Alignment::Center),
         1 => Paragraph::new("[←/→: Switch Tab] [q: Quit]")

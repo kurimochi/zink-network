@@ -1,79 +1,79 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8;
 
-import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
+import {EnumerableSet} from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
 contract ZinKNetContract {
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    uint256 public verificationGas = 0.1 ether;
+    uint256 public verificationFee = 0.1 ether;
     uint256 public minStake = 0.1 ether;
 
-    struct Task {
-        address requestor;
+    struct Competition {
+        address issuer;
         uint256 reward;
         address prover;
-        TaskStatus status;
+        CompetitionStatus status;
     }
-    enum TaskStatus {
-        NotCreated,
+    enum CompetitionStatus {
+        NotOpened,
         Open,
         Verifying,
         Completed
     }
-    mapping(uint256 => Task) public tasks;
-    uint256 private _taskIdCounter;
+    mapping(uint256 => Competition) public competitions;
+    uint256 private _competitionIdCounter;
 
-    mapping(address => uint256) public activeTask;
-    mapping(uint256 => EnumerableSet.AddressSet) private _taskDeclarations;
+    mapping(address => uint256) public activeCompetition;
+    mapping(uint256 => EnumerableSet.AddressSet) private _competitors;
 
-    event TaskCreated(uint256 indexed taskId, address indexed requestor, uint256 reward);
-    event WorkDeclared(uint256 indexed taskId, address indexed prover);
-    event DeclarationCancelled(uint256 indexed taskId, address indexed prover);
+    event CompetitionOpened(uint256 indexed competitionId, address indexed issuer, uint256 reward);
+    event CompetitionJoined(uint256 indexed competitionId, address indexed competitor);
+    event CompetitionLeft(uint256 indexed competitionId, address indexed competitor);
 
-    function getDeclarationCount(uint256 taskId) external view returns (uint256) {
-        return _taskDeclarations[taskId].length();
+    function getCompetitorCount(uint256 competitionId) external view returns (uint256) {
+        return _competitors[competitionId].length();
     }
 
-    function getDeclarations(uint256 taskId) external view returns (address[] memory) {
-        return _taskDeclarations[taskId].values();
+    function getCompetitors(uint256 competitionId) external view returns (address[] memory) {
+        return _competitors[competitionId].values();
     }
 
-    function createTask(uint256 reward) external payable returns (uint256) {
-        require(msg.value == reward + verificationGas, "Incorrect ETH sent");
+    function openCompetition(uint256 reward) external payable returns (uint256) {
+        require(msg.value == reward + verificationFee, "Incorrect ETH sent");
         require(reward > 0, "Reward must be greater than zero");
 
-        _taskIdCounter++;
-        tasks[_taskIdCounter] = Task({
-            requestor: msg.sender,
+        _competitionIdCounter++;
+        competitions[_competitionIdCounter] = Competition({
+            issuer: msg.sender,
             reward: reward,
             prover: address(0),
-            status: TaskStatus.Open
+            status: CompetitionStatus.Open
         });
-        emit TaskCreated(_taskIdCounter, msg.sender, reward);
-        return _taskIdCounter;
+        emit CompetitionOpened(_competitionIdCounter, msg.sender, reward);
+        return _competitionIdCounter;
     }
 
-    function declareWork(uint256 taskId) external payable {
-        Task storage task = tasks[taskId];
-        require(task.status == TaskStatus.Open, "Task not open");
+    function joinCompetition(uint256 competitionId) external payable {
+        Competition storage competition = competitions[competitionId];
+        require(competition.status == CompetitionStatus.Open, "Competition not open");
         require(msg.value == minStake, "Incorrect stake amount");
-        require(activeTask[msg.sender] == 0, "Already active in a task");
+        require(activeCompetition[msg.sender] == 0, "Already active in a competition");
 
-        _taskDeclarations[taskId].add(msg.sender);
-        activeTask[msg.sender] = taskId;
-        emit WorkDeclared(taskId, msg.sender);
+        _competitors[competitionId].add(msg.sender);
+        activeCompetition[msg.sender] = competitionId;
+        emit CompetitionJoined(competitionId, msg.sender);
     }
 
-    function cancelDeclaration(uint256 taskId) external {
-        require(activeTask[msg.sender] == taskId, "Not declared for this task");
-        Task storage task = tasks[taskId];
-        require(task.status == TaskStatus.Open, "Task not open");
+    function leaveCompetition() external {
+        require(activeCompetition[msg.sender] != 0, "Not active in any competition");
+        Competition storage competition = competitions[activeCompetition[msg.sender]];
+        require(competition.status == CompetitionStatus.Open, "Competition not open");
 
-        _taskDeclarations[taskId].remove(msg.sender);
-        activeTask[msg.sender] = 0;
+        _competitors[activeCompetition[msg.sender]].remove(msg.sender);
+        activeCompetition[msg.sender] = 0;
         (bool sent, ) = msg.sender.call{value: minStake}("");
         require(sent, "ETH transfer failed");
-        emit DeclarationCancelled(taskId, msg.sender);
+        emit CompetitionLeft(activeCompetition[msg.sender], msg.sender);
     }
 }
