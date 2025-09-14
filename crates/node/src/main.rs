@@ -5,7 +5,8 @@ use alloy::{
     transports::ws::WsConnect,
 };
 use clap::Parser;
-use common::{config::CommonConfig, p2p::setup_gossipsub};
+use common::{chain::ZinKNet, config::CommonConfig, p2p::setup_gossipsub};
+use dotenv::dotenv;
 use libp2p::futures::StreamExt;
 use std::{collections::HashMap, error::Error};
 use tokio::select;
@@ -13,7 +14,7 @@ use tokio::select;
 mod chain;
 mod p2p;
 
-use chain::{handle_blockchain_event, setup_ethlistener_polling};
+use chain::handle_blockchain_event;
 use p2p::handle_swarm_event;
 
 #[derive(Parser, Debug)]
@@ -25,7 +26,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    dotenv::dotenv().ok();
+    dotenv().ok();
     let cli = Cli::parse();
 
     // Setup Signer
@@ -40,7 +41,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Blockchain Setup
     let ws = WsConnect::new(&cli.common.rpc_url);
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
-    let mut stream = setup_ethlistener_polling(provider.clone(), cli.common.contract).await?;
+    let zinknet = ZinKNet::new(provider, cli.common.contract);
+    let mut stream = zinknet.setup_ethlistener_polling().await?;
 
     // Task and ELF Queues
     let mut task_queue = HashMap::<U256, Address>::new();

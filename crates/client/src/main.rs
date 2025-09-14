@@ -1,12 +1,12 @@
 use alloy::{
-    primitives::{Address, U256},
-    providers::{Provider, ProviderBuilder},
+    primitives::U256,
+    providers::ProviderBuilder,
     signers::{SignerSync, local::PrivateKeySigner},
     transports::http::reqwest::Url,
 };
 use clap::Parser;
 use common::{
-    chain::ZinKNetContract,
+    chain::ZinKNet,
     config::CommonConfig,
     p2p::{Behaviour, BehaviourEvent, setup_gossipsub},
 };
@@ -59,34 +59,6 @@ async fn find_subscribed_peer(
     }
 }
 
-async fn create_onchain_task<P: Provider + Clone>(
-    signer: &PrivateKeySigner,
-    provider: &P,
-    contract_address: Address,
-    reward: U256,
-) -> Result<U256, Box<dyn Error>> {
-    println!("Creating task on blockchain...");
-    let contract = ZinKNetContract::new(contract_address, provider);
-
-    let verification_gas = contract.verificationGas().call().await?;
-    let receipt = contract
-        .createTask(reward)
-        .value(reward + verification_gas)
-        .from(signer.address())
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
-
-    let taskcreated_log = receipt
-        .decoded_log::<ZinKNetContract::TaskCreated>()
-        .ok_or("Failed to find or decode TaskCreated log")?;
-
-    let task_id = taskcreated_log.taskId;
-    println!("Created task with ID: {}", task_id);
-    Ok(task_id)
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
@@ -102,7 +74,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     find_subscribed_peer(&mut swarm, &topic).await?;
 
-    let task_id = create_onchain_task(&signer, &provider, cli.common.contract, reward).await?;
+    let zinknet = ZinKNet::new(provider, cli.common.contract);
+    let task_id = zinknet.create_task(&signer, reward).await?;
+
     // Uncomment tokio::time::sleep if you want to send TaskCreated to node first
     // tokio::time::sleep(Duration::from_secs(5)).await;
 

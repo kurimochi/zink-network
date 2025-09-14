@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-alloy = { workspace = true, features = ["sol-types"] }
+alloy = { workspace = true, features = ["sol-types", "pubsub"] }
 clap = { workspace = true, features = ["derive", "env"] }
 libp2p = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }

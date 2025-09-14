@@ -1428,6 +1428,7 @@ dependencies = [
  "clap",
  "libp2p",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
