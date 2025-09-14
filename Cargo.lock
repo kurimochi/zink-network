@@ -1425,6 +1425,7 @@ name = "common"
 version = "0.1.0"
 dependencies = [
  "alloy",
+ "clap",
  "libp2p",
  "tokio",
 ]

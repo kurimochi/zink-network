@@ -5,5 +5,6 @@ edition = "2024"
 
 [dependencies]
 alloy = { workspace = true, features = ["sol-types"] }
+clap = { workspace = true, features = ["derive", "env"] }
 libp2p = { workspace = true }
 tokio = { workspace = true }

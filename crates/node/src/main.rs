@@ -1,39 +1,36 @@
 use alloy::{
     primitives::{Address, U256},
     providers::ProviderBuilder,
+    signers::local::PrivateKeySigner,
     transports::ws::WsConnect,
 };
 use clap::Parser;
+use common::{config::CommonConfig, p2p::setup_gossipsub};
 use libp2p::futures::StreamExt;
 use std::{collections::HashMap, error::Error};
 use tokio::select;
 
 mod chain;
-mod config;
 mod p2p;
 
 use chain::{handle_blockchain_event, setup_ethlistener_polling};
-use common::p2p::setup_gossipsub;
-use config::{Config, get_signer_from_env};
 use p2p::handle_swarm_event;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
-    /// The environment variable name for the private key.
-    #[arg(short, long)]
-    private_key_name: String,
+    #[command(flatten)]
+    common: CommonConfig,
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv::dotenv().ok();
     let cli = Cli::parse();
 
-    // Setup Configuration & Signer
-    let config = Config::from_env()?;
-    let signer = get_signer_from_env(&cli.private_key_name)?;
+    // Setup Signer
+    let signer: PrivateKeySigner = cli.common.private_key.parse()?;
     let user_addr = signer.address();
-    println!("Using private key from env: {}", cli.private_key_name);
     println!("Your address: {}", user_addr);
 
     // P2P Setup
@@ -41,9 +38,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
 
     // Blockchain Setup
-    let ws = WsConnect::new(&config.rpc_url);
+    let ws = WsConnect::new(&cli.common.rpc_url);
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
-    let mut stream = setup_ethlistener_polling(provider.clone(), config.contract_address).await?;
+    let mut stream = setup_ethlistener_polling(provider.clone(), cli.common.contract).await?;
 
     // Task and ELF Queues
     let mut task_queue = HashMap::<U256, Address>::new();

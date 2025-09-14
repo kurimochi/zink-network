@@ -7,6 +7,7 @@ use alloy::{
 use clap::Parser;
 use common::{
     chain::ZinKNetContract,
+    config::CommonConfig,
     p2p::{Behaviour, BehaviourEvent, setup_gossipsub},
 };
 use libp2p::{
@@ -20,16 +21,12 @@ use std::{error::Error, time::Duration};
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 struct Cli {
+    #[command(flatten)]
+    common: CommonConfig,
     #[arg(long)]
     reward: String,
-    #[arg(long)]
+    #[arg(long, value_name = "ELF_PATH", env = "ELF_PATH")]
     elf: String,
-    #[arg(long)]
-    private_key: String,
-    #[arg(long)]
-    contract: String,
-    #[arg(long)]
-    rpc: String,
 }
 
 async fn find_subscribed_peer(
@@ -95,9 +92,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
 
     let cli = Cli::parse();
-    let signer: PrivateKeySigner = cli.private_key.parse()?;
+    let signer: PrivateKeySigner = cli.common.private_key.parse()?;
     let reward = U256::from_str_radix(&cli.reward, 10)?;
-    let rpc_url = Url::parse(&cli.rpc)?;
+    let rpc_url = Url::parse(&cli.common.rpc_url)?;
     let provider = ProviderBuilder::new().connect_http(rpc_url);
 
     let (mut swarm, topic) = setup_gossipsub("test")?;
@@ -105,7 +102,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     find_subscribed_peer(&mut swarm, &topic).await?;
 
-    let task_id = create_onchain_task(&signer, &provider, cli.contract.parse()?, reward).await?;
+    let task_id = create_onchain_task(&signer, &provider, cli.common.contract, reward).await?;
     // Uncomment tokio::time::sleep if you want to send TaskCreated to node first
     // tokio::time::sleep(Duration::from_secs(5)).await;
 
