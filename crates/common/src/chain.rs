@@ -8,6 +8,7 @@ use alloy::{
 };
 use std::{error::Error, time::Duration};
 use tokio::time::sleep;
+use tracing::{error, info};
 
 alloy::sol!(
     #[sol(rpc)]
@@ -31,7 +32,7 @@ impl<P: Provider + Clone> ZinKNet<P> {
         signer: &PrivateKeySigner,
         reward: U256,
     ) -> Result<U256, Box<dyn Error>> {
-        println!("Opening competition on blockchain...");
+        info!("Opening competition on blockchain...");
 
         let verification_fee = self.contract.verificationFee().call().await?;
         let receipt = self
@@ -49,7 +50,7 @@ impl<P: Provider + Clone> ZinKNet<P> {
             .ok_or("Failed to find or decode CompetitionOpened log")?;
 
         let competition_id = competition_opened_log.competitionId;
-        println!("Opened competition with ID: {}", competition_id);
+        info!("Opened competition with ID: {}", competition_id);
         Ok(competition_id)
     }
 }
@@ -99,13 +100,13 @@ impl<P: Provider + Send + Sync + 'static + Clone> ZinKNet<P> {
                                     last_polled_block = current_block;
                                 }
                                 Err(e) => {
-                                    println!("Error fetching logs: {:?}", e);
+                                    error!("Error fetching logs: {:?}", e);
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        println!("Error getting block number: {:?}", e);
+                        error!("Error getting block number: {:?}", e);
                     }
                 }
             }

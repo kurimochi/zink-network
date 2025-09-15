@@ -18,6 +18,8 @@ use libp2p::{
     swarm::{Swarm, SwarmEvent},
 };
 use std::{error::Error, time::Duration};
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -34,7 +36,7 @@ async fn find_subscribed_peer(
     swarm: &mut Swarm<Behaviour>,
     topic: &IdentTopic,
 ) -> Result<(), Box<dyn Error>> {
-    println!("Searching for peers subscribed to topic '{}'...", topic);
+    info!("Searching for peers subscribed to topic '{}'...", topic);
     let topic_hash_to_check = topic.hash();
     loop {
         let subscribed_peer_exists = swarm
@@ -44,14 +46,14 @@ async fn find_subscribed_peer(
             .any(|(_peer_id, topics)| topics.contains(&&topic_hash_to_check));
 
         if subscribed_peer_exists {
-            println!("Found peer subscribed to the topic. Proceeding...");
+            info!("Found peer subscribed to the topic. Proceeding...");
             return Ok(());
         }
 
         match swarm.select_next_some().await {
             SwarmEvent::Behaviour(BehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
                 for (peer_id, _multiaddr) in list {
-                    println!("mDNS discovered a new peer: {}", peer_id);
+                    info!("mDNS discovered a new peer: {}", peer_id);
                     swarm.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
                 }
             }
@@ -63,6 +65,10 @@ async fn find_subscribed_peer(
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv::dotenv().ok();
+
+    // --- Logger Setup ---
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     let cli = Cli::parse();
     let signer: PrivateKeySigner = cli.common.private_key.parse()?;
@@ -82,7 +88,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Uncomment tokio::time::sleep if you want to send CompetitionOpened to node first
     // tokio::time::sleep(Duration::from_secs(5)).await;
 
-    println!("Preparing and publishing payload...");
+    info!("Preparing and publishing payload...");
     let elf = std::fs::read(cli.elf)?;
     let signature = signer.sign_message_sync(&elf)?;
     let elf_payload = ElfPayload {
@@ -98,11 +104,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .gossipsub
         .publish(topic.clone(), payload_bin)?;
 
-    println!("Payload published to gossipsub topic.");
+    info!("Payload published to gossipsub topic.");
 
     tokio::time::sleep(Duration::from_secs(1)).await;
 
-    println!("Client finished its job and is now exiting.");
+    info!("Client finished its job and is now exiting.");
 
     Ok(())
 }

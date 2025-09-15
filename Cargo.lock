@@ -1426,7 +1426,10 @@ dependencies = [
  "common",
  "dotenv",
  "libp2p",
+ "log",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -1442,9 +1445,11 @@ dependencies = [
  "alloy",
  "clap",
  "libp2p",
+ "log",
  "serde",
  "tokio",
  "tokio-stream",
+ "tracing",
 ]
 
 [[package]]
