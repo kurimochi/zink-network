@@ -21,7 +21,12 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Tabs},
 };
-use std::{collections::HashMap, error::Error, io::{self, Stdout}, time::Duration};
+use std::{
+    collections::HashMap,
+    error::Error,
+    io::{self, Stdout},
+    time::Duration,
+};
 use tokio::{select, sync::mpsc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget, TuiTracingSubscriberLayer};
@@ -29,7 +34,7 @@ use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget, TuiTracingSubscriberLaye
 mod chain;
 mod p2p;
 
-type JoinResult = Result<(), String>;
+type TaskResult = Result<(), String>;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -62,12 +67,14 @@ struct App {
     table_state: TableState,
     active_competition_id: Option<U256>,
     processing_competition: Option<ReadyCompetition>,
-    // UI state for joining competitions
+    // UI state for async tasks
     is_joining: bool,
+    is_leaving: bool,
     show_popup: bool,
     popup_title: String,
     popup_content: String,
-    join_result_receiver: mpsc::Receiver<JoinResult>,
+    join_result_receiver: mpsc::Receiver<TaskResult>,
+    leave_result_receiver: mpsc::Receiver<TaskResult>,
     joining_competition_id: Option<U256>,
 }
 
@@ -76,7 +83,8 @@ impl App {
         user_addr: Address,
         zinknet: &ZinKNet<P>,
         local_peer_id: libp2p::PeerId,
-        join_result_receiver: mpsc::Receiver<JoinResult>,
+        join_result_receiver: mpsc::Receiver<TaskResult>,
+        leave_result_receiver: mpsc::Receiver<TaskResult>,
     ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             running: true,
@@ -91,7 +99,8 @@ impl App {
             ready_competitions: HashMap::new(),
             table_state: TableState::default(),
             active_competition_id: {
-                let active_competition_id = zinknet.contract.activeCompetition(user_addr).call().await?;
+                let active_competition_id =
+                    zinknet.contract.activeCompetition(user_addr).call().await?;
                 if active_competition_id != U256::ZERO {
                     Some(active_competition_id)
                 } else {
@@ -100,10 +109,12 @@ impl App {
             },
             processing_competition: None,
             is_joining: false,
+            is_leaving: false,
             show_popup: false,
             popup_title: String::new(),
             popup_content: String::new(),
             join_result_receiver,
+            leave_result_receiver,
             joining_competition_id: None,
         })
     }
@@ -208,7 +219,15 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Bo
 
     // --- App Creation and Main Loop ---
     let (join_result_sender, join_result_receiver) = mpsc::channel(1);
-    let mut app = App::new(user_addr, &zinknet, local_peer_id, join_result_receiver).await?;
+    let (leave_result_sender, leave_result_receiver) = mpsc::channel(1);
+    let mut app = App::new(
+        user_addr,
+        &zinknet,
+        local_peer_id,
+        join_result_receiver,
+        leave_result_receiver,
+    )
+    .await?;
 
     let res = run_app(
         terminal,
@@ -219,6 +238,7 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Bo
         &zinknet,
         signer,
         join_result_sender,
+        leave_result_sender,
     )
     .await;
 
@@ -237,8 +257,9 @@ async fn run_app<B, P, T>(
     provider: &P,
     zinknet: &ZinKNet<P>,
     signer: PrivateKeySigner,
-    join_result_sender: mpsc::Sender<JoinResult>,
-) -> io::Result<()> 
+    join_result_sender: mpsc::Sender<TaskResult>,
+    leave_result_sender: mpsc::Sender<TaskResult>,
+) -> io::Result<()>
 where
     B: Backend,
     P: Provider + Send + Sync + 'static + Clone,
@@ -252,7 +273,7 @@ where
         // Handle key inputs (non-blocking)
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
-                if app.is_joining {
+                if app.is_joining || app.is_leaving {
                     match key.code {
                         KeyCode::Char('c') => {
                             if app.show_popup {
@@ -262,11 +283,7 @@ where
                         KeyCode::Char('v') => {
                             if !app.show_popup {
                                 app.show_popup = true;
-                                app.popup_title = "Joining Competition".to_string();
-                                app.popup_content = format!(
-                                    "Attempting to join competition {}...",
-                                    app.joining_competition_id.unwrap_or_default()
-                                );
+                                // Potentially restore popup content based on is_joining vs is_leaving
                             }
                         }
                         _ => {}
@@ -295,7 +312,7 @@ where
                                 && app.table_state.selected().is_some()
                             {
                                 if let Some(selected_index) = app.table_state.selected() {
-                                    if let Some(competition) = 
+                                    if let Some(competition) =
                                         app.ready_competitions.values().nth(selected_index)
                                     {
                                         app.is_joining = true;
@@ -323,6 +340,27 @@ where
                                         });
                                     }
                                 }
+                            }
+                        }
+                        KeyCode::Char('l') => {
+                            if app.active_tab == 1 && app.processing_competition.is_some() {
+                                app.is_leaving = true;
+                                app.show_popup = true;
+                                app.popup_title = "Leaving Competition".to_string();
+                                app.popup_content =
+                                    "Attempting to leave competition...".to_string();
+
+                                let sender = leave_result_sender.clone();
+                                let zinknet_clone = zinknet.clone();
+                                let signer_clone = signer.clone();
+
+                                tokio::spawn(async move {
+                                    let result =
+                                        zinknet_clone.leave_competition(&signer_clone).await;
+                                    let _ = sender
+                                        .send(result.map(|_| ()).map_err(|e| e.to_string()))
+                                        .await;
+                                });
                             }
                         }
                         _ => {}
@@ -355,6 +393,24 @@ where
                     }
                 }
                 app.joining_competition_id = None;
+            }
+
+            // Handle competition leave results
+            Some(result) = app.leave_result_receiver.recv() => {
+                app.is_leaving = false;
+                match result {
+                    Ok(_) => {
+                        app.popup_title = "Success".to_string();
+                        app.popup_content = "Successfully left the competition.\n\nPress any key to close.".to_string();
+                        if let Some(leaving_competition) = app.processing_competition.take() {
+                            app.ready_competitions.insert(leaving_competition.competition_id, leaving_competition);
+                        }
+                    }
+                    Err(e) => {
+                        app.popup_title = "Error".to_string();
+                        app.popup_content = format!("Failed to leave competition: {}\n\nPress any key to close.", e);
+                    }
+                }
             }
 
             _ = block_update_interval.tick() => {
@@ -396,7 +452,7 @@ where
         }
 
         if !app.running {
-            return Ok(())
+            return Ok(());
         }
     }
 }
@@ -569,7 +625,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(logger_widget, chunks[3]);
 
     // Footer
-    let footer_text = if app.is_joining {
+    let footer_text = if app.is_joining || app.is_leaving {
         if app.show_popup {
             "[c: Close Popup]".to_string()
         } else {
@@ -584,6 +640,8 @@ fn ui(f: &mut Frame, app: &mut App) {
             if app.active_competition_id.is_none() && app.table_state.selected().is_some() {
                 base.push_str(" [j: Join Competition]");
             }
+        } else if app.active_tab == 1 && app.processing_competition.is_some() {
+            base.push_str(" [l: Leave Competition]");
         }
         base
     };
