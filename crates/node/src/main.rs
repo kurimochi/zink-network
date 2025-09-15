@@ -21,7 +21,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Tabs},
 };
-use std::{collections::HashMap, error::Error, io, time::Duration};
+use std::{collections::HashMap, error::Error, io::{self, Stdout}, time::Duration};
 use tokio::{select, sync::mpsc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget, TuiTracingSubscriberLayer};
@@ -91,8 +91,7 @@ impl App {
             ready_competitions: HashMap::new(),
             table_state: TableState::default(),
             active_competition_id: {
-                let active_competition_id =
-                    zinknet.contract.activeCompetition(user_addr).call().await?;
+                let active_competition_id = zinknet.contract.activeCompetition(user_addr).call().await?;
                 if active_competition_id != U256::ZERO {
                     Some(active_competition_id)
                 } else {
@@ -144,8 +143,41 @@ impl App {
     }
 }
 
+struct Tui {
+    terminal: Terminal<CrosstermBackend<Stdout>>,
+}
+
+impl Tui {
+    fn new() -> io::Result<Self> {
+        enable_raw_mode()?;
+        let mut stdout = io::stdout();
+        execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+        let backend = CrosstermBackend::new(stdout);
+        let terminal = Terminal::new(backend)?;
+        Ok(Self { terminal })
+    }
+}
+
+impl Drop for Tui {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(
+            self.terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        );
+        let _ = self.terminal.show_cursor();
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let mut tui = Tui::new()?;
+    let result = run(&mut tui.terminal).await;
+    result
+}
+
+async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Box<dyn Error>> {
     dotenv().ok();
 
     // --- Logger Setup ---
@@ -174,19 +206,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
     let local_peer_id = *swarm.local_peer_id();
 
-    // --- TUI Setup ---
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-
     // --- App Creation and Main Loop ---
     let (join_result_sender, join_result_receiver) = mpsc::channel(1);
     let mut app = App::new(user_addr, &zinknet, local_peer_id, join_result_receiver).await?;
 
     let res = run_app(
-        &mut terminal,
+        terminal,
         &mut app,
         &mut chain_stream,
         &mut swarm,
@@ -196,15 +221,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         join_result_sender,
     )
     .await;
-
-    // --- TUI Cleanup ---
-    disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
-    terminal.show_cursor()?;
 
     if let Err(err) = res {
         println!("Error: {:?}", err);
@@ -222,7 +238,7 @@ async fn run_app<B, P, T>(
     zinknet: &ZinKNet<P>,
     signer: PrivateKeySigner,
     join_result_sender: mpsc::Sender<JoinResult>,
-) -> io::Result<()>
+) -> io::Result<()> 
 where
     B: Backend,
     P: Provider + Send + Sync + 'static + Clone,
@@ -279,7 +295,7 @@ where
                                 && app.table_state.selected().is_some()
                             {
                                 if let Some(selected_index) = app.table_state.selected() {
-                                    if let Some(competition) =
+                                    if let Some(competition) = 
                                         app.ready_competitions.values().nth(selected_index)
                                     {
                                         app.is_joining = true;
@@ -380,7 +396,7 @@ where
         }
 
         if !app.running {
-            return Ok(());
+            return Ok(())
         }
     }
 }
