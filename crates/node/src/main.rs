@@ -17,7 +17,6 @@ use crossterm::{
 };
 use dotenv::dotenv;
 use libp2p::futures::StreamExt;
-use log::LevelFilter;
 use ratatui::{
     Frame, Terminal,
     backend::{Backend, CrosstermBackend},
@@ -119,13 +118,20 @@ impl App {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    dotenv().ok();
+
     // --- Logger Setup ---
-    tui_logger::init_logger(LevelFilter::Info).unwrap();
+    tui_logger::init_logger(log::LevelFilter::Info)?;
+    if std::env::var("RUST_LOG").is_ok() {
+        tui_logger::set_env_filter_from_env(None);
+    }
+    let env_filter = tracing_subscriber::filter::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::filter::EnvFilter::new("info"));
     tracing_subscriber::registry()
+        .with(env_filter)
         .with(TuiTracingSubscriberLayer)
         .init();
 
-    dotenv().ok();
     let cli = Cli::parse();
 
     // --- Blockchain & P2P Setup ---
