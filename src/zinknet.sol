@@ -66,14 +66,15 @@ contract ZinKNetContract {
     }
 
     function leaveCompetition() external {
-        require(activeCompetition[msg.sender] != 0, "Not active in any competition");
-        Competition storage competition = competitions[activeCompetition[msg.sender]];
+        uint256 competitionId = activeCompetition[msg.sender];
+        require(competitionId != 0, "Not active in any competition");
+        Competition storage competition = competitions[competitionId];
         require(competition.status == CompetitionStatus.Open, "Competition not open");
 
-        _competitors[activeCompetition[msg.sender]].remove(msg.sender);
+        _competitors[competitionId].remove(msg.sender);
         activeCompetition[msg.sender] = 0;
         (bool sent, ) = msg.sender.call{value: minStake}("");
         require(sent, "ETH transfer failed");
-        emit CompetitionLeft(activeCompetition[msg.sender], msg.sender);
+        emit CompetitionLeft(competitionId, msg.sender);
     }
 }
