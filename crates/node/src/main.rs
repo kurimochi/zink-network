@@ -207,8 +207,16 @@ where
                     KeyCode::Char('q') => app.running = false,
                     KeyCode::Right => app.active_tab = (app.active_tab + 1) % 2,
                     KeyCode::Left => app.active_tab = (app.active_tab + 2 - 1) % 2,
-                    KeyCode::Down => app.next_competition(),
-                    KeyCode::Up => app.previous_competition(),
+                    KeyCode::Down => {
+                        if app.active_tab == 0 {
+app.next_competition()
+                        }
+                    }
+                    KeyCode::Up => {
+                        if app.active_tab == 0 {
+app.previous_competition()
+                        }
+                    }
                     _ => {}
                 }
             }
