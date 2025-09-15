@@ -18,20 +18,18 @@ use crossterm::{
 use dotenv::dotenv;
 use libp2p::futures::StreamExt;
 use ratatui::{
-    Frame, Terminal,
-    backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table, TableState, Tabs},
+    prelude::*,
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Tabs},
 };
 use std::{collections::HashMap, error::Error, io, time::Duration};
-use tokio::select;
+use tokio::{select, sync::mpsc};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget, TuiTracingSubscriberLayer};
 
 mod chain;
 mod p2p;
+
+type JoinResult = Result<(), String>;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -50,7 +48,7 @@ pub struct ReadyCompetition {
 }
 
 // Application state
-struct App<'a> {
+struct App {
     running: bool,
     active_tab: usize,
     user_addr: Address,
@@ -63,14 +61,22 @@ struct App<'a> {
     ready_competitions: HashMap<U256, ReadyCompetition>,
     table_state: TableState,
     active_competition_id: Option<U256>,
-    processing_competition: Option<&'a ReadyCompetition>,
+    processing_competition: Option<ReadyCompetition>,
+    // UI state for joining competitions
+    is_joining: bool,
+    show_popup: bool,
+    popup_title: String,
+    popup_content: String,
+    join_result_receiver: mpsc::Receiver<JoinResult>,
+    joining_competition_id: Option<U256>,
 }
 
-impl<'a> App<'a> {
+impl App {
     async fn new<P: Provider + Clone>(
         user_addr: Address,
         zinknet: &ZinKNet<P>,
         local_peer_id: libp2p::PeerId,
+        join_result_receiver: mpsc::Receiver<JoinResult>,
     ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             running: true,
@@ -94,6 +100,12 @@ impl<'a> App<'a> {
                 }
             },
             processing_competition: None,
+            is_joining: false,
+            show_popup: false,
+            popup_title: String::new(),
+            popup_content: String::new(),
+            join_result_receiver,
+            joining_competition_id: None,
         })
     }
 
@@ -170,7 +182,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // --- App Creation and Main Loop ---
-    let mut app = App::new(user_addr, &zinknet, local_peer_id).await?;
+    let (join_result_sender, join_result_receiver) = mpsc::channel(1);
+    let mut app = App::new(user_addr, &zinknet, local_peer_id, join_result_receiver).await?;
 
     let res = run_app(
         &mut terminal,
@@ -179,6 +192,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &mut swarm,
         &provider,
         &zinknet,
+        signer,
+        join_result_sender,
     )
     .await;
 
@@ -200,15 +215,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn run_app<B, P, T>(
     terminal: &mut Terminal<B>,
-    app: &mut App<'_>,
+    app: &mut App,
     chain_stream: &mut T,
     swarm: &mut libp2p::Swarm<Behaviour>,
     provider: &P,
     zinknet: &ZinKNet<P>,
+    signer: PrivateKeySigner,
+    join_result_sender: mpsc::Sender<JoinResult>,
 ) -> io::Result<()>
 where
     B: Backend,
-    P: Provider + Send + Sync + 'static,
+    P: Provider + Send + Sync + 'static + Clone,
     T: StreamExt<Item = alloy::rpc::types::Log> + Unpin,
 {
     let mut block_update_interval = tokio::time::interval(Duration::from_secs(5));
@@ -219,21 +236,81 @@ where
         // Handle key inputs (non-blocking)
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => app.running = false,
-                    KeyCode::Right => app.active_tab = (app.active_tab + 1) % 3,
-                    KeyCode::Left => app.active_tab = (app.active_tab + 3 - 1) % 3,
-                    KeyCode::Down => {
-                        if app.active_tab == 0 {
-                            app.next_competition()
+                if app.is_joining {
+                    match key.code {
+                        KeyCode::Char('c') => {
+                            if app.show_popup {
+                                app.show_popup = false;
+                            }
                         }
-                    }
-                    KeyCode::Up => {
-                        if app.active_tab == 0 {
-                            app.previous_competition()
+                        KeyCode::Char('v') => {
+                            if !app.show_popup {
+                                app.show_popup = true;
+                                app.popup_title = "Joining Competition".to_string();
+                                app.popup_content = format!(
+                                    "Attempting to join competition {}...",
+                                    app.joining_competition_id.unwrap_or_default()
+                                );
+                            }
                         }
+                        _ => {}
                     }
-                    _ => {}
+                } else if app.show_popup {
+                    // If a result popup is shown, any key dismisses it
+                    app.show_popup = false;
+                } else {
+                    match key.code {
+                        KeyCode::Char('q') => app.running = false,
+                        KeyCode::Right => app.active_tab = (app.active_tab + 1) % 3,
+                        KeyCode::Left => app.active_tab = (app.active_tab + 3 - 1) % 3,
+                        KeyCode::Down => {
+                            if app.active_tab == 0 {
+                                app.next_competition()
+                            }
+                        }
+                        KeyCode::Up => {
+                            if app.active_tab == 0 {
+                                app.previous_competition()
+                            }
+                        }
+                        KeyCode::Char('j') => {
+                            if app.active_tab == 0
+                                && app.active_competition_id.is_none()
+                                && app.table_state.selected().is_some()
+                            {
+                                if let Some(selected_index) = app.table_state.selected() {
+                                    if let Some(competition) =
+                                        app.ready_competitions.values().nth(selected_index)
+                                    {
+                                        app.is_joining = true;
+                                        app.show_popup = true;
+                                        app.joining_competition_id =
+                                            Some(competition.competition_id);
+                                        app.popup_title = "Joining Competition".to_string();
+                                        app.popup_content = format!(
+                                            "Attempting to join competition {}...",
+                                            competition.competition_id
+                                        );
+
+                                        let sender = join_result_sender.clone();
+                                        let zinknet_clone = zinknet.clone();
+                                        let signer_clone = signer.clone();
+                                        let competition_id = competition.competition_id;
+
+                                        tokio::spawn(async move {
+                                            let result = zinknet_clone
+                                                .join_competition(&signer_clone, competition_id)
+                                                .await;
+                                            let _ = sender
+                                                .send(result.map(|_| ()).map_err(|e| e.to_string()))
+                                                .await;
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
@@ -241,6 +318,28 @@ where
         // Handle async events
         select! {
             biased;
+
+            // Handle competition join results
+            Some(result) = app.join_result_receiver.recv() => {
+                app.is_joining = false;
+                match result {
+                    Ok(_) => {
+                        app.popup_title = "Success".to_string();
+                        app.popup_content = "Successfully joined the competition.\n\nPress any key to close.".to_string();
+                        if let Some(joined_id) = app.joining_competition_id {
+                            if let Some(competition_to_move) = app.ready_competitions.remove(&joined_id) {
+                                app.processing_competition = Some(competition_to_move);
+                            }
+                        }
+                        app.table_state.select(None); // Deselect table row
+                    }
+                    Err(e) => {
+                        app.popup_title = "Error".to_string();
+                        app.popup_content = format!("Failed to join competition: {}\n\nPress any key to close.", e);
+                    }
+                }
+                app.joining_competition_id = None;
+            }
 
             _ = block_update_interval.tick() => {
                 if let Ok(bn) = provider.get_block_number().await {
@@ -290,16 +389,13 @@ fn ui(f: &mut Frame, app: &mut App) {
     let area = f.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(
-            [
-                Constraint::Length(1), // Header
-                Constraint::Length(3), // Tabs
-                Constraint::Min(0),    // Main content
-                Constraint::Length(8), // Log panel
-                Constraint::Length(1), // Footer
-            ]
-            .as_ref(),
-        )
+        .constraints([
+            Constraint::Length(1), // Header
+            Constraint::Length(3), // Tabs
+            Constraint::Min(0),    // Main content
+            Constraint::Length(8), // Log panel
+            Constraint::Length(1), // Footer
+        ])
         .split(area);
 
     // Header
@@ -338,16 +434,20 @@ fn ui(f: &mut Frame, app: &mut App) {
                 .map(|h| Cell::from(*h).style(Style::default().fg(Color::Red)));
             let header = Row::new(header_cells).height(1).bottom_margin(1);
 
-            let rows = app.ready_competitions.values().map(|competition| {
-                let reward_eth = format_ether(competition.reward);
-                let cells = vec![
-                    Cell::from(competition.competition_id.to_string()),
-                    Cell::from(competition.issuer.to_string()),
-                    Cell::from(reward_eth),
-                    Cell::from(competition.competitors.to_string()),
-                ];
-                Row::new(cells).height(1)
-            });
+            let rows: Vec<Row> = app
+                .ready_competitions
+                .values()
+                .map(|competition| {
+                    let reward_eth = format_ether(competition.reward);
+                    let cells = vec![
+                        Cell::from(competition.competition_id.to_string()),
+                        Cell::from(competition.issuer.to_string()),
+                        Cell::from(reward_eth),
+                        Cell::from(competition.competitors.to_string()),
+                    ];
+                    Row::new(cells).height(1)
+                })
+                .collect();
 
             let widths = [
                 Constraint::Percentage(25),
@@ -368,7 +468,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         }
         1 => {
             let processing_paragraph =
-                if let Some(processing_competition) = app.processing_competition {
+                if let Some(processing_competition) = &app.processing_competition {
                     Paragraph::new(vec![
                         Line::from("Processing Competitions: "),
                         Line::from(vec![
@@ -453,17 +553,69 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(logger_widget, chunks[3]);
 
     // Footer
-    let footer_content = match app.active_tab {
-        0 => Paragraph::new("[←/→: Switch Tab] [↑/↓: Scroll Competitions] [q: Quit]")
-            .style(Style::default().fg(Color::LightCyan))
-            .alignment(Alignment::Center),
-        1 => Paragraph::new("[←/→: Switch Tab] [q: Quit]")
-            .style(Style::default().fg(Color::LightCyan))
-            .alignment(Alignment::Center),
-        2 => Paragraph::new("[←/→: Switch Tab] [q: Quit]")
-            .style(Style::default().fg(Color::LightCyan))
-            .alignment(Alignment::Center),
-        _ => unreachable!(),
+    let footer_text = if app.is_joining {
+        if app.show_popup {
+            "[c: Close Popup]".to_string()
+        } else {
+            "[v: View Progress] [q: Quit]".to_string()
+        }
+    } else if app.show_popup {
+        "[Any key: Close Popup]".to_string()
+    } else {
+        let mut base = "[←/→: Switch Tab] [q: Quit]".to_string();
+        if app.active_tab == 0 {
+            base = "[←/→: Switch Tab] [↑/↓: Scroll] [q: Quit]".to_string();
+            if app.active_competition_id.is_none() && app.table_state.selected().is_some() {
+                base.push_str(" [j: Join Competition]");
+            }
+        }
+        base
     };
-    f.render_widget(footer_content, chunks[4]);
+    let footer = Paragraph::new(footer_text)
+        .style(Style::default().fg(Color::LightCyan))
+        .alignment(Alignment::Center);
+    f.render_widget(footer, chunks[4]);
+
+    // Popup
+    if app.show_popup {
+        render_popup(f, app.popup_title.as_str(), app.popup_content.as_str());
+    }
+}
+
+fn render_popup(f: &mut Frame, title: &str, content: &str) {
+    let area = f.area();
+    let popup_area = centered_rect(60, 25, area);
+
+    let popup_block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::DarkGray));
+
+    let popup_text = Paragraph::new(content)
+        .wrap(ratatui::widgets::Wrap { trim: true })
+        .alignment(Alignment::Center)
+        .block(popup_block);
+
+    f.render_widget(Clear, popup_area);
+    f.render_widget(popup_text, popup_area);
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
+    let popup_layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(r);
+
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(popup_layout[1])[1]
 }

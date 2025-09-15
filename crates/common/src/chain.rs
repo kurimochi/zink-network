@@ -16,6 +16,7 @@ alloy::sol!(
     "../../out/zinknet.sol/ZinKNetContract.json"
 );
 
+#[derive(Clone)]
 pub struct ZinKNet<P> {
     pub provider: P,
     pub contract: ZinKNetContract::ZinKNetContractInstance<P>,
