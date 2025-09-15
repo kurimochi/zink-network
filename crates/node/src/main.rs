@@ -50,7 +50,7 @@ pub struct ReadyCompetition {
 }
 
 // Application state
-struct App {
+struct App<'a> {
     running: bool,
     active_tab: usize,
     user_addr: Address,
@@ -62,11 +62,17 @@ struct App {
     elf_only_competitions: HashMap<U256, (Vec<u8>, Address)>, // competitionId -> (elf_bytes, signer)
     ready_competitions: HashMap<U256, ReadyCompetition>,
     table_state: TableState,
+    active_competition_id: Option<U256>,
+    processing_competition: Option<&'a ReadyCompetition>,
 }
 
-impl App {
-    fn new(user_addr: Address, local_peer_id: libp2p::PeerId) -> Self {
-        Self {
+impl<'a> App<'a> {
+    async fn new<P: Provider + Clone>(
+        user_addr: Address,
+        zinknet: &ZinKNet<P>,
+        local_peer_id: libp2p::PeerId,
+    ) -> Result<Self, Box<dyn Error>> {
+        Ok(Self {
             running: true,
             active_tab: 0,
             user_addr,
@@ -78,7 +84,17 @@ impl App {
             elf_only_competitions: HashMap::new(),
             ready_competitions: HashMap::new(),
             table_state: TableState::default(),
-        }
+            active_competition_id: {
+                let active_competition_id =
+                    zinknet.contract.activeCompetition(user_addr).call().await?;
+                if active_competition_id != U256::ZERO {
+                    Some(active_competition_id)
+                } else {
+                    None
+                }
+            },
+            processing_competition: None,
+        })
     }
 
     pub fn next_competition(&mut self) {
@@ -154,7 +170,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     // --- App Creation and Main Loop ---
-    let mut app = App::new(user_addr, local_peer_id);
+    let mut app = App::new(user_addr, &zinknet, local_peer_id).await?;
 
     let res = run_app(
         &mut terminal,
@@ -184,7 +200,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
 async fn run_app<B, P, T>(
     terminal: &mut Terminal<B>,
-    app: &mut App,
+    app: &mut App<'_>,
     chain_stream: &mut T,
     swarm: &mut libp2p::Swarm<Behaviour>,
     provider: &P,
@@ -205,16 +221,16 @@ where
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Char('q') => app.running = false,
-                    KeyCode::Right => app.active_tab = (app.active_tab + 1) % 2,
-                    KeyCode::Left => app.active_tab = (app.active_tab + 2 - 1) % 2,
+                    KeyCode::Right => app.active_tab = (app.active_tab + 1) % 3,
+                    KeyCode::Left => app.active_tab = (app.active_tab + 3 - 1) % 3,
                     KeyCode::Down => {
                         if app.active_tab == 0 {
-app.next_competition()
+                            app.next_competition()
                         }
                     }
                     KeyCode::Up => {
                         if app.active_tab == 0 {
-app.previous_competition()
+                            app.previous_competition()
                         }
                     }
                     _ => {}
@@ -235,9 +251,11 @@ app.previous_competition()
                 if let Err(e) = chain::handle_blockchain_event(
                     log,
                     zinknet,
+                    app.user_addr,
                     &mut app.chain_only_competitions,
                     &mut app.elf_only_competitions,
                     &mut app.ready_competitions,
+                    &mut app.active_competition_id,
                 ).await {
                     log::error!("Failed to handle blockchain event: {}", e);
                 }
@@ -295,7 +313,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(header, chunks[0]);
 
     // Tabs
-    let titles: Vec<_> = ["Competitions", "My Info"]
+    let titles: Vec<_> = ["Competitions", "Processing", "My Info"]
         .iter()
         .cloned()
         .map(Line::from)
@@ -349,6 +367,51 @@ fn ui(f: &mut Frame, app: &mut App) {
             f.render_stateful_widget(table, main_chunk, &mut app.table_state);
         }
         1 => {
+            let processing_paragraph =
+                if let Some(processing_competition) = app.processing_competition {
+                    Paragraph::new(vec![
+                        Line::from("Processing Competitions: "),
+                        Line::from(vec![
+                            Span::raw("  Competition ID: "),
+                            Span::styled(
+                                processing_competition.competition_id.to_string(),
+                                Style::default().fg(Color::Cyan),
+                            ),
+                        ]),
+                        Line::from(vec![
+                            Span::raw("  Issuer: "),
+                            Span::styled(
+                                processing_competition.issuer.to_string(),
+                                Style::default().fg(Color::Cyan),
+                            ),
+                        ]),
+                        Line::from(vec![
+                            Span::raw("  Reward: "),
+                            Span::styled(
+                                format!("{} ETH", format_ether(processing_competition.reward)),
+                                Style::default().fg(Color::Cyan),
+                            ),
+                        ]),
+                    ])
+                } else if let Some(active_competition_id) = app.active_competition_id {
+                    Paragraph::new(vec![
+                        Line::from("Active Competition: "),
+                        Line::from(vec![
+                            Span::raw("  Competition ID: "),
+                            Span::styled(
+                                active_competition_id.to_string(),
+                                Style::default().fg(Color::Cyan),
+                            ),
+                        ]),
+                        Line::from("(Another node may be processing this competition)"),
+                    ])
+                } else {
+                    Paragraph::new("No competition is currently being processed.")
+                }
+                .block(Block::default().borders(Borders::ALL).title("Processing"));
+            f.render_widget(processing_paragraph, main_chunk);
+        }
+        2 => {
             let mut info_lines = vec![
                 Line::from(vec![
                     Span::raw("Blockchain Address: "),
@@ -395,6 +458,9 @@ fn ui(f: &mut Frame, app: &mut App) {
             .style(Style::default().fg(Color::LightCyan))
             .alignment(Alignment::Center),
         1 => Paragraph::new("[←/→: Switch Tab] [q: Quit]")
+            .style(Style::default().fg(Color::LightCyan))
+            .alignment(Alignment::Center),
+        2 => Paragraph::new("[←/→: Switch Tab] [q: Quit]")
             .style(Style::default().fg(Color::LightCyan))
             .alignment(Alignment::Center),
         _ => unreachable!(),

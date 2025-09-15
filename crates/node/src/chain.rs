@@ -12,9 +12,11 @@ use tracing::{info, warn};
 pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
     log: Log,
     zinknet: &ZinKNet<P>,
+    user_addr: Address,
     chain_only_competitions: &mut HashMap<U256, (Address, U256)>,
     elf_only_competitions: &mut HashMap<U256, (Vec<u8>, Address)>,
     ready_competitions: &mut HashMap<U256, ReadyCompetition>,
+    active_competition_id: &mut Option<U256>,
 ) -> Result<(), Box<dyn Error>> {
     match log.topic0() {
         // --- CompetitionOpened Event ---
@@ -78,6 +80,11 @@ pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
                     competitionId, competition.competitors, competitor
                 );
             }
+
+            if user_addr == competitor {
+                *active_competition_id = Some(competitionId);
+                info!("You have joined the competition {}.", competitionId);
+            }
         }
 
         // --- CompetitionLeft Event ---
@@ -96,6 +103,10 @@ pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
                     "CompetitionLeft event for competition {}. New count: {}. Competitor: {}",
                     competitionId, competition.competitors, competitor
                 );
+            }
+            if competitor == user_addr {
+                *active_competition_id = None;
+                info!("You have left the competition {}.", competitionId);
             }
         }
         _ => {}
