@@ -3,7 +3,7 @@ use alloy::{
     primitives::{Address, U256},
     providers::Provider,
     pubsub::SubscriptionStream,
-    rpc::types::{Filter, Log},
+    rpc::types::{Filter, Log, TransactionReceipt},
     signers::local::PrivateKeySigner,
 };
 use std::{error::Error, time::Duration};
@@ -52,6 +52,47 @@ impl<P: Provider + Clone> ZinKNet<P> {
         let competition_id = competition_opened_log.competitionId;
         info!("Opened competition with ID: {}", competition_id);
         Ok(competition_id)
+    }
+
+    pub async fn join_competition(
+        &self,
+        signer: &PrivateKeySigner,
+        competition_id: U256,
+    ) -> Result<TransactionReceipt, Box<dyn Error>> {
+        info!("Joining competition {}...", competition_id);
+
+        let min_stake = self.contract.minStake().call().await?;
+        let receipt = self
+            .contract
+            .joinCompetition(competition_id)
+            .value(min_stake)
+            .from(signer.address())
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+
+        info!("Successfully joined competition {}.", competition_id);
+        Ok(receipt)
+    }
+
+    pub async fn leave_competition(
+        &self,
+        signer: &PrivateKeySigner,
+    ) -> Result<TransactionReceipt, Box<dyn Error>> {
+        info!("Leaving competition...");
+
+        let receipt = self
+            .contract
+            .leaveCompetition()
+            .from(signer.address())
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+
+        info!("Successfully left competition.");
+        Ok(receipt)
     }
 }
 
