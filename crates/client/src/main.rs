@@ -17,6 +17,7 @@ use libp2p::{
     mdns,
     swarm::{Swarm, SwarmEvent},
 };
+use sp1_sdk::SP1Stdin;
 use std::{error::Error, time::Duration};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -94,6 +95,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let elf_payload = ElfPayload {
         competition_id,
         elf,
+        stdin: SP1Stdin::new(),
         signature,
     };
 

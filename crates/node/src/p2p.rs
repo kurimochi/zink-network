@@ -9,6 +9,7 @@ use common::{
     payload::ElfPayload,
 };
 use libp2p::{gossipsub, mdns, swarm::SwarmEvent};
+use sp1_sdk::SP1Stdin;
 use std::{collections::HashMap, error::Error};
 use tracing::{info, warn};
 
@@ -17,7 +18,7 @@ pub async fn handle_swarm_event<P: Provider + Send + Sync>(
     swarm: &mut libp2p::Swarm<Behaviour>,
     zinknet: &ZinKNet<P>,
     chain_only_competitions: &mut HashMap<U256, (Address, U256)>,
-    elf_only_competitions: &mut HashMap<U256, (Vec<u8>, Address)>,
+    elf_only_competitions: &mut HashMap<U256, (Vec<u8>, SP1Stdin, Address)>,
     ready_competitions: &mut HashMap<U256, ReadyCompetition>,
 ) -> Result<(), Box<dyn Error>> {
     match event {
@@ -55,6 +56,8 @@ pub async fn handle_swarm_event<P: Provider + Send + Sync>(
                             issuer,
                             reward,
                             competitors,
+                            elf: payload.elf,
+                            stdin: payload.stdin,
                         };
                         info!("Competition {} is now ready for execution.", competition_id);
                         ready_competitions.insert(competition_id, new_ready_competition);
@@ -64,7 +67,8 @@ pub async fn handle_swarm_event<P: Provider + Send + Sync>(
                             "ELF for competition {} is pending CompetitionOpened event.",
                             competition_id
                         );
-                        elf_only_competitions.insert(competition_id, (payload.elf, elf_signer));
+                        elf_only_competitions
+                            .insert(competition_id, (payload.elf, payload.stdin, elf_signer));
                     }
                 } else {
                     warn!(

@@ -16,6 +16,7 @@ dotenv = "0.15.0"
 libp2p = { version = "0.56.0", features = ["gossipsub", "macros", "mdns", "noise", "tcp", "tokio", "yamux"] }
 log = "0.4.28"
 serde = "1.0.221"
+sp1-sdk = "5.2.1"
 tokio = "1.47.1"
 tokio-stream = "0.1.17"
 tracing = "0.1.41"

@@ -21,6 +21,7 @@ use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, TableState, Tabs},
 };
+use sp1_sdk::{SP1ProofWithPublicValues, SP1Stdin};
 use std::{
     collections::HashMap,
     error::Error,
@@ -33,8 +34,10 @@ use tui_logger::{TuiLoggerLevelOutput, TuiLoggerWidget, TuiTracingSubscriberLaye
 
 mod chain;
 mod p2p;
+mod zkvm;
 
 type TaskResult = Result<(), String>;
+type CalculationResult = Result<SP1ProofWithPublicValues, String>;
 
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
@@ -50,6 +53,8 @@ pub struct ReadyCompetition {
     pub issuer: Address,
     pub reward: U256,
     pub competitors: U256,
+    pub elf: Vec<u8>,
+    pub stdin: SP1Stdin,
 }
 
 // Application state
@@ -62,7 +67,7 @@ struct App {
     block_number: Option<u64>,
     connected_peers: usize,
     chain_only_competitions: HashMap<U256, (Address, U256)>, // competitionId -> (issuer, reward)
-    elf_only_competitions: HashMap<U256, (Vec<u8>, Address)>, // competitionId -> (elf_bytes, signer)
+    elf_only_competitions: HashMap<U256, (Vec<u8>, SP1Stdin, Address)>, // competitionId -> (elf_bytes, stdin, signer)
     ready_competitions: HashMap<U256, ReadyCompetition>,
     table_state: TableState,
     active_competition_id: Option<U256>,
@@ -70,11 +75,13 @@ struct App {
     // UI state for async tasks
     is_joining: bool,
     is_leaving: bool,
+    is_calculating: bool,
     show_popup: bool,
     popup_title: String,
     popup_content: String,
     join_result_receiver: mpsc::Receiver<TaskResult>,
     leave_result_receiver: mpsc::Receiver<TaskResult>,
+    calculation_result_receiver: mpsc::Receiver<CalculationResult>,
     joining_competition_id: Option<U256>,
 }
 
@@ -85,6 +92,7 @@ impl App {
         local_peer_id: libp2p::PeerId,
         join_result_receiver: mpsc::Receiver<TaskResult>,
         leave_result_receiver: mpsc::Receiver<TaskResult>,
+        calculation_result_receiver: mpsc::Receiver<CalculationResult>,
     ) -> Result<Self, Box<dyn Error>> {
         Ok(Self {
             running: true,
@@ -110,11 +118,13 @@ impl App {
             processing_competition: None,
             is_joining: false,
             is_leaving: false,
+            is_calculating: false,
             show_popup: false,
             popup_title: String::new(),
             popup_content: String::new(),
             join_result_receiver,
             leave_result_receiver,
+            calculation_result_receiver,
             joining_competition_id: None,
         })
     }
@@ -220,12 +230,14 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Bo
     // --- App Creation and Main Loop ---
     let (join_result_sender, join_result_receiver) = mpsc::channel(1);
     let (leave_result_sender, leave_result_receiver) = mpsc::channel(1);
+    let (calculation_result_sender, calculation_result_receiver) = mpsc::channel(1);
     let mut app = App::new(
         user_addr,
         &zinknet,
         local_peer_id,
         join_result_receiver,
         leave_result_receiver,
+        calculation_result_receiver,
     )
     .await?;
 
@@ -239,6 +251,7 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Bo
         signer,
         join_result_sender,
         leave_result_sender,
+        calculation_result_sender,
     )
     .await;
 
@@ -259,6 +272,7 @@ async fn run_app<B, P, T>(
     signer: PrivateKeySigner,
     join_result_sender: mpsc::Sender<TaskResult>,
     leave_result_sender: mpsc::Sender<TaskResult>,
+    calculation_result_sender: mpsc::Sender<CalculationResult>,
 ) -> io::Result<()>
 where
     B: Backend,
@@ -273,7 +287,7 @@ where
         // Handle key inputs (non-blocking)
         if event::poll(Duration::from_millis(50))? {
             if let Event::Key(key) = event::read()? {
-                if app.is_joining || app.is_leaving {
+                if app.is_joining || app.is_leaving || app.is_calculating {
                     match key.code {
                         KeyCode::Char('c') => {
                             if app.show_popup {
@@ -343,7 +357,10 @@ where
                             }
                         }
                         KeyCode::Char('l') => {
-                            if app.active_tab == 1 && app.processing_competition.is_some() {
+                            if app.active_tab == 1
+                                && app.processing_competition.is_some()
+                                && !app.is_calculating
+                            {
                                 app.is_leaving = true;
                                 app.show_popup = true;
                                 app.popup_title = "Leaving Competition".to_string();
@@ -378,21 +395,61 @@ where
                 app.is_joining = false;
                 match result {
                     Ok(_) => {
-                        app.popup_title = "Success".to_string();
-                        app.popup_content = "Successfully joined the competition.\n\nPress any key to close.".to_string();
+                        // Move competition to processing
                         if let Some(joined_id) = app.joining_competition_id {
                             if let Some(competition_to_move) = app.ready_competitions.remove(&joined_id) {
-                                app.processing_competition = Some(competition_to_move);
+                                app.processing_competition = Some(competition_to_move.clone());
+
+                                // Start calculation
+                                app.is_calculating = true;
+                                app.popup_title = "Calculating".to_string();
+                                app.popup_content = format!("Generating proof for competition {}...", joined_id);
+                                app.show_popup = true;
+
+                                let calculation_sender = calculation_result_sender.clone();
+                                tokio::spawn(async move {
+                                    let result = zkvm::sp1_proof(&competition_to_move.elf, &competition_to_move.stdin)
+                                        .map_err(|e| e.to_string());
+                                    let _ = calculation_sender.send(result).await;
+                                });
                             }
                         }
                         app.table_state.select(None); // Deselect table row
                     }
                     Err(e) => {
                         app.popup_title = "Error".to_string();
-                        app.popup_content = format!("Failed to join competition: {}\n\nPress any key to close.", e);
+                        app.popup_content = format!("Failed to join competition: {}
+
+Press any key to close.", e);
+                        app.show_popup = true;
                     }
                 }
                 app.joining_competition_id = None;
+            }
+
+            // Handle calculation results
+            Some(result) = app.calculation_result_receiver.recv() => {
+                app.is_calculating = false;
+                match result {
+                    Ok(_proof) => {
+                        // TODO: Handle the proof (e.g., submit to blockchain)
+                        app.popup_title = "Calculation Complete".to_string();
+                        app.popup_content = "Successfully generated proof.
+
+(Proof submission not yet implemented)
+
+Press any key to close.".to_string();
+                        log::info!("Successfully generated proof.");
+                    }
+                    Err(e) => {
+                        app.popup_title = "Error".to_string();
+                        app.popup_content = format!("Failed to generate proof: {}
+
+Press any key to close.", e);
+                        log::error!("Failed to generate proof: {}", e);
+                    }
+                }
+                app.show_popup = true;
             }
 
             // Handle competition leave results
@@ -401,16 +458,21 @@ where
                 match result {
                     Ok(_) => {
                         app.popup_title = "Success".to_string();
-                        app.popup_content = "Successfully left the competition.\n\nPress any key to close.".to_string();
+                        app.popup_content = "Successfully left the competition.
+
+Press any key to close.".to_string();
                         if let Some(leaving_competition) = app.processing_competition.take() {
                             app.ready_competitions.insert(leaving_competition.competition_id, leaving_competition);
                         }
                     }
                     Err(e) => {
                         app.popup_title = "Error".to_string();
-                        app.popup_content = format!("Failed to leave competition: {}\n\nPress any key to close.", e);
+                        app.popup_content = format!("Failed to leave competition: {}
+
+Press any key to close.", e);
                     }
                 }
+                 app.show_popup = true;
             }
 
             _ = block_update_interval.tick() => {
@@ -539,47 +601,52 @@ fn ui(f: &mut Frame, app: &mut App) {
             f.render_stateful_widget(table, main_chunk, &mut app.table_state);
         }
         1 => {
-            let processing_paragraph =
-                if let Some(processing_competition) = &app.processing_competition {
-                    Paragraph::new(vec![
-                        Line::from("Processing Competitions: "),
-                        Line::from(vec![
-                            Span::raw("  Competition ID: "),
-                            Span::styled(
-                                processing_competition.competition_id.to_string(),
-                                Style::default().fg(Color::Cyan),
-                            ),
-                        ]),
-                        Line::from(vec![
-                            Span::raw("  Issuer: "),
-                            Span::styled(
-                                processing_competition.issuer.to_string(),
-                                Style::default().fg(Color::Cyan),
-                            ),
-                        ]),
-                        Line::from(vec![
-                            Span::raw("  Reward: "),
-                            Span::styled(
-                                format!("{} ETH", format_ether(processing_competition.reward)),
-                                Style::default().fg(Color::Cyan),
-                            ),
-                        ]),
-                    ])
-                } else if let Some(active_competition_id) = app.active_competition_id {
-                    Paragraph::new(vec![
-                        Line::from("Active Competition: "),
-                        Line::from(vec![
-                            Span::raw("  Competition ID: "),
-                            Span::styled(
-                                active_competition_id.to_string(),
-                                Style::default().fg(Color::Cyan),
-                            ),
-                        ]),
-                        Line::from("(Another node may be processing this competition)"),
-                    ])
+            let mut lines = Vec::new();
+            if let Some(processing_competition) = &app.processing_competition {
+                lines.push(Line::from("Processing Competition: "));
+                lines.push(Line::from(vec![
+                    Span::raw("  Competition ID: "),
+                    Span::styled(
+                        processing_competition.competition_id.to_string(),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::raw("  Issuer: "),
+                    Span::styled(
+                        processing_competition.issuer.to_string(),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::raw("  Reward: "),
+                    Span::styled(
+                        format!("{} ETH", format_ether(processing_competition.reward)),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]));
+                if app.is_calculating {
+                    lines.push(Line::from("  Status: Generating proof..."));
                 } else {
-                    Paragraph::new("No competition is currently being processed.")
+                    lines.push(Line::from("  Status: Waiting for next step."));
                 }
+            } else if let Some(active_competition_id) = app.active_competition_id {
+                lines.push(Line::from("Active Competition: "));
+                lines.push(Line::from(vec![
+                    Span::raw("  Competition ID: "),
+                    Span::styled(
+                        active_competition_id.to_string(),
+                        Style::default().fg(Color::Cyan),
+                    ),
+                ]));
+                lines.push(Line::from(
+                    "(Another node may be processing this competition)",
+                ));
+            } else {
+                lines.push(Line::from("No competition is currently being processed."));
+            }
+
+            let processing_paragraph = Paragraph::new(lines)
                 .block(Block::default().borders(Borders::ALL).title("Processing"));
             f.render_widget(processing_paragraph, main_chunk);
         }
@@ -625,7 +692,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(logger_widget, chunks[3]);
 
     // Footer
-    let footer_text = if app.is_joining || app.is_leaving {
+    let footer_text = if app.is_joining || app.is_leaving || app.is_calculating {
         if app.show_popup {
             "[c: Close Popup]".to_string()
         } else {
@@ -640,7 +707,8 @@ fn ui(f: &mut Frame, app: &mut App) {
             if app.active_competition_id.is_none() && app.table_state.selected().is_some() {
                 base.push_str(" [j: Join Competition]");
             }
-        } else if app.active_tab == 1 && app.processing_competition.is_some() {
+        } else if app.active_tab == 1 && app.processing_competition.is_some() && !app.is_calculating
+        {
             base.push_str(" [l: Leave Competition]");
         }
         base

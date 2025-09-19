@@ -6,6 +6,7 @@ use alloy::{
     sol_types::SolEvent,
 };
 use common::chain::{ZinKNet, ZinKNetContract};
+use sp1_sdk::SP1Stdin;
 use std::{collections::HashMap, error::Error};
 use tracing::{info, warn};
 
@@ -14,7 +15,7 @@ pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
     zinknet: &ZinKNet<P>,
     user_addr: Address,
     chain_only_competitions: &mut HashMap<U256, (Address, U256)>,
-    elf_only_competitions: &mut HashMap<U256, (Vec<u8>, Address)>,
+    elf_only_competitions: &mut HashMap<U256, (Vec<u8>, SP1Stdin, Address)>,
     ready_competitions: &mut HashMap<U256, ReadyCompetition>,
     active_competition_id: &mut Option<U256>,
 ) -> Result<(), Box<dyn Error>> {
@@ -33,7 +34,9 @@ pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
             );
 
             // Check if the corresponding ELF has already arrived
-            if let Some((_elf_bytes, elf_signer)) = elf_only_competitions.remove(&competitionId) {
+            if let Some((elf_bytes, stdin, elf_signer)) =
+                elf_only_competitions.remove(&competitionId)
+            {
                 // ELF came first. Now we have a pair.
                 if elf_signer != issuer {
                     warn!(
@@ -55,6 +58,8 @@ pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
                     issuer,
                     reward,
                     competitors,
+                    elf: elf_bytes,
+                    stdin,
                 };
                 info!("Competition {} is now ready for execution.", competitionId);
                 ready_competitions.insert(competitionId, new_ready_competition);

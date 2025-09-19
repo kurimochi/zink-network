@@ -9,6 +9,7 @@ clap = { workspace = true, features = ["derive", "env"] }
 libp2p = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true }
+sp1-sdk = { workspace = true }
 tokio = { workspace = true }
 tokio-stream = { workspace = true }
 tracing = { workspace = true }
