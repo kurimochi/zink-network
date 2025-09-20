@@ -17,7 +17,7 @@ use libp2p::{
     mdns,
     swarm::{Swarm, SwarmEvent},
 };
-use sp1_sdk::SP1Stdin;
+use sp1_sdk::{SP1Stdin, utils};
 use std::{error::Error, time::Duration};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
@@ -70,6 +70,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // --- Logger Setup ---
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
+    utils::setup_logger();
 
     let cli = Cli::parse();
     let reward = U256::from_str_radix(&cli.reward, 10)?;
@@ -94,11 +95,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     info!("Preparing and publishing payload...");
     let elf = std::fs::read(cli.elf)?;
+    let mut stdin = SP1Stdin::new();
+    stdin.write(&20u32);
     let signature = zinknet.signer.sign_message_sync(&elf)?;
     let elf_payload = ElfPayload {
         competition_id,
         elf,
-        stdin: SP1Stdin::new(),
+        stdin,
         signature,
     };
 
