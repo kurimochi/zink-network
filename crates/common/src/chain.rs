@@ -4,7 +4,7 @@ use alloy::{
     providers::Provider,
     pubsub::SubscriptionStream,
     rpc::types::{Filter, Log, TransactionReceipt},
-    signers::local::PrivateKeySigner,
+    signers::Signer,
 };
 use std::{error::Error, time::Duration};
 use tokio::time::sleep;
@@ -17,22 +17,23 @@ alloy::sol!(
 );
 
 #[derive(Clone)]
-pub struct ZinKNet<P> {
+pub struct ZinKNet<P, S> {
     pub provider: P,
     pub contract: ZinKNetContract::ZinKNetContractInstance<P>,
+    pub signer: S,
 }
 
-impl<P: Provider + Clone> ZinKNet<P> {
-    pub fn new(provider: P, address: Address) -> Self {
+impl<P: Provider + Clone, S: Signer> ZinKNet<P, S> {
+    pub fn new(provider: P, address: Address, signer: S) -> Self {
         let contract = ZinKNetContract::new(address, provider.clone());
-        Self { provider, contract }
+        Self {
+            provider,
+            contract,
+            signer,
+        }
     }
 
-    pub async fn open_competition(
-        &self,
-        signer: &PrivateKeySigner,
-        reward: U256,
-    ) -> Result<U256, Box<dyn Error>> {
+    pub async fn open_competition(&self, reward: U256) -> Result<U256, Box<dyn Error>> {
         info!("Opening competition on blockchain...");
 
         let verification_fee = self.contract.verificationFee().call().await?;
@@ -40,7 +41,7 @@ impl<P: Provider + Clone> ZinKNet<P> {
             .contract
             .openCompetition(reward)
             .value(reward + verification_fee)
-            .from(signer.address())
+            .from(self.signer.address())
             .send()
             .await?
             .get_receipt()
@@ -57,7 +58,6 @@ impl<P: Provider + Clone> ZinKNet<P> {
 
     pub async fn join_competition(
         &self,
-        signer: &PrivateKeySigner,
         competition_id: U256,
     ) -> Result<TransactionReceipt, Box<dyn Error>> {
         info!("Joining competition {}...", competition_id);
@@ -67,7 +67,7 @@ impl<P: Provider + Clone> ZinKNet<P> {
             .contract
             .joinCompetition(competition_id)
             .value(min_stake)
-            .from(signer.address())
+            .from(self.signer.address())
             .send()
             .await?
             .get_receipt()
@@ -77,16 +77,13 @@ impl<P: Provider + Clone> ZinKNet<P> {
         Ok(receipt)
     }
 
-    pub async fn leave_competition(
-        &self,
-        signer: &PrivateKeySigner,
-    ) -> Result<TransactionReceipt, Box<dyn Error>> {
+    pub async fn leave_competition(&self) -> Result<TransactionReceipt, Box<dyn Error>> {
         info!("Leaving competition...");
 
         let receipt = self
             .contract
             .leaveCompetition()
-            .from(signer.address())
+            .from(self.signer.address())
             .send()
             .await?
             .get_receipt()
@@ -97,7 +94,7 @@ impl<P: Provider + Clone> ZinKNet<P> {
     }
 }
 
-impl<P: Provider + Send + Sync + 'static + Clone> ZinKNet<P> {
+impl<P: Provider + Send + Sync + 'static + Clone, S> ZinKNet<P, S> {
     // Use when RPC supports event subscription (e.g. WebSocket).
     pub async fn setup_ethlistener(&self) -> Result<SubscriptionStream<Log>, Box<dyn Error>> {
         let filter = Filter::new()

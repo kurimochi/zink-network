@@ -72,7 +72,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     let cli = Cli::parse();
-    let signer: PrivateKeySigner = cli.common.private_key.parse()?;
     let reward = U256::from_str_radix(&cli.reward, 10)?;
     let rpc_url = Url::parse(&cli.common.rpc_url)?;
     let provider = ProviderBuilder::new().connect_http(rpc_url);
@@ -83,15 +82,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     find_subscribed_peer(&mut swarm, &topic).await?;
 
-    let zinknet = ZinKNet::new(provider, cli.common.contract);
-    let competition_id = zinknet.open_competition(&signer, reward).await?;
+    let zinknet = ZinKNet::new(
+        provider,
+        cli.common.contract,
+        cli.common.private_key.parse::<PrivateKeySigner>()?,
+    );
+    let competition_id = zinknet.open_competition(reward).await?;
 
     // Uncomment tokio::time::sleep if you want to send CompetitionOpened to node first
     // tokio::time::sleep(Duration::from_secs(5)).await;
 
     info!("Preparing and publishing payload...");
     let elf = std::fs::read(cli.elf)?;
-    let signature = signer.sign_message_sync(&elf)?;
+    let signature = zinknet.signer.sign_message_sync(&elf)?;
     let elf_payload = ElfPayload {
         competition_id,
         elf,

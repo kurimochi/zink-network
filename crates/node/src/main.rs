@@ -1,7 +1,7 @@
 use alloy::{
     primitives::{Address, U256, utils::format_ether},
     providers::{Provider, ProviderBuilder},
-    signers::local::PrivateKeySigner,
+    signers::{Signer, local::PrivateKeySigner},
     transports::ws::WsConnect,
 };
 use clap::Parser;
@@ -86,9 +86,9 @@ struct App {
 }
 
 impl App {
-    async fn new<P: Provider + Clone>(
+    async fn new<P: Provider + Clone, S>(
         user_addr: Address,
-        zinknet: &ZinKNet<P>,
+        zinknet: &ZinKNet<P, S>,
         local_peer_id: libp2p::PeerId,
         join_result_receiver: mpsc::Receiver<TaskResult>,
         leave_result_receiver: mpsc::Receiver<TaskResult>,
@@ -220,7 +220,7 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Bo
     let user_addr = signer.address();
     let ws = WsConnect::new(&cli.common.rpc_url);
     let provider = ProviderBuilder::new().connect_ws(ws).await?;
-    let zinknet = ZinKNet::new(provider.clone(), cli.common.contract);
+    let zinknet = ZinKNet::new(provider.clone(), cli.common.contract, signer);
     let mut chain_stream = zinknet.setup_ethlistener_polling().await?;
     let mut swarm = Behaviour::new_swarm()?;
     let _ = swarm.subscribe("test")?;
@@ -248,7 +248,6 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Bo
         &mut swarm,
         &provider,
         &zinknet,
-        signer,
         join_result_sender,
         leave_result_sender,
         calculation_result_sender,
@@ -262,14 +261,13 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Bo
     Ok(())
 }
 
-async fn run_app<B, P, T>(
+async fn run_app<B, P, S, T>(
     terminal: &mut Terminal<B>,
     app: &mut App,
     chain_stream: &mut T,
     swarm: &mut libp2p::Swarm<Behaviour>,
     provider: &P,
-    zinknet: &ZinKNet<P>,
-    signer: PrivateKeySigner,
+    zinknet: &ZinKNet<P, S>,
     join_result_sender: mpsc::Sender<TaskResult>,
     leave_result_sender: mpsc::Sender<TaskResult>,
     calculation_result_sender: mpsc::Sender<CalculationResult>,
@@ -277,6 +275,7 @@ async fn run_app<B, P, T>(
 where
     B: Backend,
     P: Provider + Send + Sync + 'static + Clone,
+    S: Signer + Send + Sync + 'static + Clone,
     T: StreamExt<Item = alloy::rpc::types::Log> + Unpin,
 {
     let mut block_update_interval = tokio::time::interval(Duration::from_secs(5));
@@ -341,12 +340,11 @@ where
 
                                         let sender = join_result_sender.clone();
                                         let zinknet_clone = zinknet.clone();
-                                        let signer_clone = signer.clone();
                                         let competition_id = competition.competition_id;
 
                                         tokio::spawn(async move {
                                             let result = zinknet_clone
-                                                .join_competition(&signer_clone, competition_id)
+                                                .join_competition(competition_id)
                                                 .await;
                                             let _ = sender
                                                 .send(result.map(|_| ()).map_err(|e| e.to_string()))
@@ -369,11 +367,9 @@ where
 
                                 let sender = leave_result_sender.clone();
                                 let zinknet_clone = zinknet.clone();
-                                let signer_clone = signer.clone();
 
                                 tokio::spawn(async move {
-                                    let result =
-                                        zinknet_clone.leave_competition(&signer_clone).await;
+                                    let result = zinknet_clone.leave_competition().await;
                                     let _ = sender
                                         .send(result.map(|_| ()).map_err(|e| e.to_string()))
                                         .await;

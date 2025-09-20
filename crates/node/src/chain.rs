@@ -10,9 +10,9 @@ use sp1_sdk::SP1Stdin;
 use std::{collections::HashMap, error::Error};
 use tracing::{info, warn};
 
-pub async fn handle_blockchain_event<P: Provider + Send + Sync>(
+pub async fn handle_blockchain_event<P: Provider + Send + Sync, S>(
     log: Log,
-    zinknet: &ZinKNet<P>,
+    zinknet: &ZinKNet<P, S>,
     user_addr: Address,
     chain_only_competitions: &mut HashMap<U256, (Address, U256)>,
     elf_only_competitions: &mut HashMap<U256, (Vec<u8>, SP1Stdin, Address)>,
