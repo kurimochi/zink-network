@@ -1,0 +1,13 @@
+[package]
+name = "client-lib"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+alloy = { workspace = true }
+bincode = { workspace = true }
+common = { workspace = true }
+libp2p = { workspace = true }
+log = { workspace = true }
+sp1-sdk = { workspace = true }
+tokio = { workspace = true, features = ["macros"] }

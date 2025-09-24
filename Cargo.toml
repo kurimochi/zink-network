@@ -1,11 +1,12 @@
 [workspace]
-members = ["crates/client", "crates/common", "crates/node", "crates/program"]
+members = ["crates/client-lib", "crates/common", "crates/fibonacci/client", "crates/fibonacci/program", "crates/node"]
 resolver = "2"
 
 [workspace.dependencies]
 alloy = "1.0.30"
 bincode = "1.3.3"
 clap = { version = "4.5.47", features = ["derive"] }
+client-lib = { path = "crates/client-lib" }
 common = { path = "crates/common" }
 crossterm = "0.29.0"
 dotenv = "0.15.0"

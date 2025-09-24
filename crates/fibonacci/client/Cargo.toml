@@ -1,17 +1,16 @@
 [package]
-name = "client"
+name = "fibonacci-client"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 alloy = { workspace = true }
-bincode = { workspace = true }
-clap = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+client-lib = { workspace = true }
 common = { workspace = true }
 dotenv = { workspace = true }
-libp2p = { workspace = true }
 log = { workspace = true }
 sp1-sdk = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+tracing-subscriber = { workspace = true }

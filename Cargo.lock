@@ -2087,20 +2087,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
 
 [[package]]
-name = "client"
+name = "client-lib"
 version = "0.1.0"
 dependencies = [
  "alloy",
  "bincode",
- "clap",
  "common",
- "dotenv",
  "libp2p",
  "log",
  "sp1-sdk",
  "tokio",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]
@@ -3084,6 +3080,22 @@ name = "fiat-crypto"
 version = "0.2.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28dea519a9695b9977216879a3ebfddf92f1c08c05d984f8996aecd6ecdc811d"
+
+[[package]]
+name = "fibonacci-client"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "clap",
+ "client-lib",
+ "common",
+ "dotenv",
+ "log",
+ "sp1-sdk",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "fibonacci-program"
