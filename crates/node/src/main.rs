@@ -299,6 +299,17 @@ where
                                 // Potentially restore popup content based on is_joining vs is_leaving
                             }
                         }
+                        // Allow tab switching even when a task is running, if the popup is hidden
+                        KeyCode::Right => {
+                            if !app.show_popup {
+                                app.active_tab = (app.active_tab + 1) % 3;
+                            }
+                        }
+                        KeyCode::Left => {
+                            if !app.show_popup {
+                                app.active_tab = (app.active_tab + 3 - 1) % 3;
+                            }
+                        }
                         _ => {}
                     }
                 } else if app.show_popup {
@@ -692,7 +703,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         if app.show_popup {
             "[c: Close Popup]".to_string()
         } else {
-            "[v: View Progress] [q: Quit]".to_string()
+            "[←/→: Switch Tab] [v: View Progress] [q: Quit]".to_string()
         }
     } else if app.show_popup {
         "[Any key: Close Popup]".to_string()
