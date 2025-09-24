@@ -33,6 +33,7 @@ impl Behaviour {
                 let gossipsub_config = gossipsub::ConfigBuilder::default()
                     .heartbeat_interval(Duration::from_secs(10))
                     .validation_mode(gossipsub::ValidationMode::Strict)
+                    .max_transmit_size(1048576)
                     .message_id_fn(message_id_fn)
                     .build()
                     .map_err(io::Error::other)?;
