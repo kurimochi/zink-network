@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cli.common.private_key.parse::<PrivateKeySigner>()?,
     );
 
-    let mut competition_manager = CompetitionManager::new(zinknet, "test").await?;
+    let mut competition_manager = CompetitionManager::new(zinknet, "zinknet-elf").await?;
 
     competition_manager.find_subscribed_peer().await?;
 

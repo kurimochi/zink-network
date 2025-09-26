@@ -223,7 +223,7 @@ async fn run(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), Bo
     let zinknet = ZinKNet::new(provider.clone(), cli.common.contract, signer);
     let mut chain_stream = zinknet.setup_ethlistener_polling().await?;
     let mut swarm = Behaviour::new_swarm()?;
-    let _ = swarm.subscribe("test")?;
+    let _ = swarm.subscribe("zinknet-elf")?;
     swarm.listen_on("/ip4/0.0.0.0/tcp/0".parse()?)?;
     let local_peer_id = *swarm.local_peer_id();
 
